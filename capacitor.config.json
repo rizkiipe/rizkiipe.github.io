@@ -16,6 +16,10 @@
     "StatusBar": {
       "style": "DARK",
       "backgroundColor": "#0A0E17"
+    },
+    "SystemBars": {
+      "insetsHandling": "disable",
+      "style": "DARK"
     }
   }
 }

@@ -508,7 +508,7 @@ html.is-native .pbtn,html.is-native .btn-secondary,html.is-native .btn-cloud,htm
 html.is-native .pbtn:active,html.is-native .btn-secondary:active,html.is-native .btn-cloud:active,html.is-native .btn-primary:active{transform:scale(.97)}
 .rpl{position:absolute;border-radius:50%;background:rgba(255,255,255,.22);transform:scale(0);animation:rpl .55s ease-out forwards;pointer-events:none}
 @keyframes rpl{to{transform:scale(1);opacity:0}}
-#ptr{position:fixed;left:50%;top:calc(var(--sat) + 8px);transform:translate(-50%,-60px);background:#19233B;border:1px solid var(--line);color:var(--cyan);border-radius:20px;padding:6px 14px;font-size:12px;z-index:90;transition:transform .15s;pointer-events:none}
+#ptr{position:fixed;left:50%;top:calc(var(--sat) + 8px);transform:translate(-50%,-120px);opacity:0;background:#19233B;border:1px solid var(--line);color:var(--cyan);border-radius:20px;padding:6px 14px;font-size:12px;z-index:90;transition:transform .15s,opacity .15s;pointer-events:none}
 </style>
 </head>
 <body>
@@ -8699,12 +8699,12 @@ function initPullToRefresh(){
     if(sub.id === 'sub-eff') return () => effLoad(true);
     return null;
   };
-  const hide = () => { ind.style.transform = 'translate(-50%, -60px)'; };
+  const hide = () => { ind.style.transform = 'translate(-50%, -120px)'; ind.style.opacity = '0'; };
   document.addEventListener('touchstart', e => { y0 = (window.scrollY <= 0 && e.touches.length === 1 && act()) ? e.touches[0].clientY : null; dist = 0; }, { passive: true });
   document.addEventListener('touchmove', e => {
     if(y0 === null) return;
     dist = e.touches[0].clientY - y0;
-    if(dist > 8){ ind.style.transform = 'translate(-50%, ' + (Math.min(dist, 120) * .6 - 20) + 'px)'; ind.textContent = dist > 90 ? '↑ Lepas untuk memuat' : '↓ Tarik untuk memuat'; }
+    if(dist > 8){ ind.style.opacity = '1'; ind.style.transform = 'translate(-50%, ' + (Math.min(dist, 120) * .6 - 20) + 'px)'; ind.textContent = dist > 90 ? '↑ Lepas untuk memuat' : '↓ Tarik untuk memuat'; }
   }, { passive: true });
   document.addEventListener('touchend', () => {
     const f = (y0 !== null && dist > 90) ? act() : null;
@@ -8828,7 +8828,7 @@ Object.assign(window, {
 <div id="appVersion" style="text-align:center;font:500 11px 'IBM Plex Mono',monospace;color:var(--muted);opacity:.75;padding:14px 0 4px"></div>
 <script>
 /* APP_VERSION diisi otomatis oleh workflow rilis (jangan diubah manual). */
-var APP_VERSION = '1.0.1';
+var APP_VERSION = '1.0.0';
 (function(){
   var el = document.getElementById('appVersion');
   if(el) el.textContent = 'U-Track v' + APP_VERSION + (window.IS_NATIVE ? '' : ' · Web');
