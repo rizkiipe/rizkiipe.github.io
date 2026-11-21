@@ -1,0 +1,157 @@
+name: Build & Release APK
+
+# Satu rilis = satu versi (web di dalam APK + APK):
+#   Actions -> "Build & Release APK" -> Run workflow -> isi nomor versi (mis. 1.0.1)
+#   (atau push tag, mis. v1.0.1)
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Nomor versi, mis. 1.0.1'
+        required: true
+      notes:
+        description: 'Catatan update (tampil di dialog update)'
+        required: false
+        default: ''
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Tentukan versi
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          VERSION="${INPUT_VERSION:-${GITHUB_REF_NAME}}"
+          VERSION="${VERSION#v}"
+          if ! echo "$VERSION" | grep -Eq '^[0-9]+(\.[0-9]+){1,2}$'; then
+            echo "Format versi harus angka titik, mis. 1.0.1 (dapat: $VERSION)"; exit 1
+          fi
+          IFS=. read -r MA MI PA <<< "$VERSION"
+          CODE=$((MA*10000 + MI*100 + ${PA:-0}))
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "VCODE=$CODE" >> "$GITHUB_ENV"
+
+      - name: Isi versi, alamat situs, dan repo ke index.html
+        run: |
+          HOST="${GITHUB_REPOSITORY_OWNER,,}.github.io"
+          sed -i "s/var APP_VERSION = '[0-9.]*'/var APP_VERSION = '$VERSION'/; s|__HOST__|$HOST|g; s|__REPO__|$GITHUB_REPOSITORY|g" www/index.html
+          grep -q "var APP_VERSION = '$VERSION'" www/index.html || { echo "APP_VERSION gagal diisi"; exit 1; }
+
+      - name: Install dependensi dan buat proyek Android
+        run: |
+          rm -rf android
+          npm install
+          npx cap add android
+          python3 scripts/patch-android.py
+          npx cap sync android
+
+      - name: Siapkan keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+        run: |
+          mkdir -p keystore-out
+          if [ -n "$KEYSTORE_BASE64" ] && [ -n "$KEYSTORE_PASSWORD" ]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > release.jks
+            PASS="$KEYSTORE_PASSWORD"
+            echo "NEW_KEY=false" >> "$GITHUB_ENV"
+          else
+            PASS=$(openssl rand -hex 12)
+            keytool -genkeypair -v -keystore release.jks -storetype PKCS12 \
+              -alias utrack -keyalg RSA -keysize 2048 -validity 10000 \
+              -storepass "$PASS" -keypass "$PASS" \
+              -dname "CN=U-Track, OU=UCI, O=UCI, C=ID"
+            base64 -w0 release.jks > keystore-out/KEYSTORE_BASE64.txt
+            echo "$PASS" > keystore-out/KEYSTORE_PASSWORD.txt
+            echo "NEW_KEY=true" >> "$GITHUB_ENV"
+          fi
+          echo "::add-mask::$PASS"
+          echo "KS_PASS=$PASS" >> "$GITHUB_ENV"
+
+      - name: Build APK release
+        working-directory: android
+        run: ./gradlew assembleRelease --no-daemon
+
+      - name: Tanda tangani APK
+        run: |
+          BT=$(ls -d "${ANDROID_HOME:-$ANDROID_SDK_ROOT}"/build-tools/* | sort -V | tail -1)
+          UNSIGNED=$(find android/app/build/outputs/apk/release -name '*.apk' | head -1)
+          echo "APK mentah: $UNSIGNED"
+          mkdir -p out
+          "$BT/zipalign" -p -f 4 "$UNSIGNED" out/aligned.apk
+          "$BT/apksigner" sign --ks release.jks --ks-pass "pass:$KS_PASS" --key-pass "pass:$KS_PASS" \
+            --ks-key-alias utrack --out out/U-Track.apk out/aligned.apk
+          "$BT/apksigner" verify out/U-Track.apk
+          rm -f out/aligned.apk out/*.idsig
+
+      - name: Ringkasan
+        run: |
+          FP=$(keytool -list -v -keystore release.jks -alias utrack -storepass "$KS_PASS" | grep 'SHA256:' | head -1 | sed 's/.*SHA256: *//')
+          {
+            echo "## U-Track v$VERSION"
+            echo "SHA-256 sertifikat (untuk Android OAuth client, bila dibutuhkan):"
+            echo '```'
+            echo "$FP"
+            echo '```'
+            if [ "$NEW_KEY" = "true" ]; then
+              echo ""
+              echo "**Keystore baru dibuat, rilis ini TIDAK dipublikasikan.** Download artifact \`keystore-SIMPAN\`, isi secret repo KEYSTORE_BASE64 dan KEYSTORE_PASSWORD, lalu jalankan workflow lagi. Tanpa secret itu tiap build memakai kunci baru dan update di tempat tidak akan bisa."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: U-Track-APK
+          path: out/U-Track.apk
+
+      - uses: actions/upload-artifact@v4
+        if: env.NEW_KEY == 'true'
+        with:
+          name: keystore-SIMPAN
+          path: keystore-out/
+          retention-days: 30
+
+      # Hanya publikasi kalau kunci tanda tangan sudah permanen (dari secret)
+      - name: Publikasikan release
+        if: env.NEW_KEY == 'false'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ env.VERSION }}
+          name: U-Track v${{ env.VERSION }}
+          body: ${{ inputs.notes }}
+          files: out/U-Track.apk
+          make_latest: true
+
+      # Samakan versi di repo (versi web di GitHub Pages ikut sama dengan APK)
+      - name: Simpan nomor versi ke repo
+        if: env.NEW_KEY == 'false'
+        run: |
+          git checkout -- www/index.html
+          sed -i "s/var APP_VERSION = '[0-9.]*'/var APP_VERSION = '$VERSION'/" www/index.html
+          if ! git diff --quiet www/index.html; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add www/index.html
+            git commit -m "Rilis v$VERSION"
+            git pull --rebase origin main
+            git push origin main
+          fi
