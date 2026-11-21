@@ -1,0 +1,7 @@
+UPLOAD MUDAH (tanpa folder tersembunyi)
+
+1. Upload SEMUA isi paket ini (isi foldernya, bukan foldernya) ke repo, commit.
+2. Di GitHub, buka dot-github/workflows/build-apk.yml > ikon pensil (Edit).
+   Di kotak nama file paling atas, hapus "dot-github" lalu ketik ".github"
+   sehingga jadi  .github/workflows/build-apk.yml  > Commit changes.
+3. Lanjut ke README.md langkah 2 (Google Cloud Console).

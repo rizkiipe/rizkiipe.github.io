@@ -1,0 +1,21 @@
+{
+  "appId": "com.utrack.app",
+  "appName": "U-Track",
+  "webDir": "www",
+  "backgroundColor": "#0A0E17",
+  "server": {
+    "androidScheme": "https"
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 600,
+      "launchAutoHide": true,
+      "backgroundColor": "#0A0E17",
+      "showSpinner": false
+    },
+    "StatusBar": {
+      "style": "DARK",
+      "backgroundColor": "#0A0E17"
+    }
+  }
+}
