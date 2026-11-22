@@ -496,6 +496,7 @@ html.is-native,html.is-native body{overscroll-behavior:none}
 html.is-native body{-webkit-tap-highlight-color:transparent;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;padding-bottom:calc(96px + var(--sab))}
 html.is-native input,html.is-native textarea,html.is-native select,html.is-native [contenteditable],html.is-native #outputText,html.is-native pre{-webkit-user-select:text;user-select:text}
 html.is-native #btnInstall,html.is-native #installHint,html.is-native button[onclick="loadDash()"],html.is-native button[onclick="effLoad(true)"]{display:none!important}
+html.is-native button[onclick="uploadToDrive()"],html.is-native .row2:has(button[onclick="uploadToDrive()"]){display:none!important}
 html.is-native header{padding-top:calc(22px + var(--sat))}
 html.is-native #loginScreen{padding-top:calc(20px + var(--sat));padding-bottom:calc(20px + var(--sab))}
 html.is-native #botnav{background:#111A2E;border-top:0;box-shadow:0 -3px 14px rgba(0,0,0,.45);padding:8px 6px calc(8px + var(--sab))}
@@ -8828,7 +8829,7 @@ Object.assign(window, {
 <div id="appVersion" style="text-align:center;font:500 11px 'IBM Plex Mono',monospace;color:var(--muted);opacity:.75;padding:14px 0 4px"></div>
 <script>
 /* APP_VERSION diisi otomatis oleh workflow rilis (jangan diubah manual). */
-var APP_VERSION = '1.0.2';
+var APP_VERSION = '1.0.0';
 (function(){
   var el = document.getElementById('appVersion');
   if(el) el.textContent = 'U-Track v' + APP_VERSION + (window.IS_NATIVE ? '' : ' · Web');
