@@ -31,6 +31,16 @@ public class ApkUpdaterPlugin extends Plugin {
     private File apkFile;
 
     @PluginMethod
+    public void getInsets(PluginCall call) {
+        JSObject r = new JSObject();
+        r.put("top", MainActivity.insetTop);
+        r.put("bottom", MainActivity.insetBottom);
+        r.put("left", MainActivity.insetLeft);
+        r.put("right", MainActivity.insetRight);
+        call.resolve(r);
+    }
+
+    @PluginMethod
     public void canInstall(PluginCall call) {
         boolean ok = Build.VERSION.SDK_INT < 26
                 || getContext().getPackageManager().canRequestPackageInstalls();
