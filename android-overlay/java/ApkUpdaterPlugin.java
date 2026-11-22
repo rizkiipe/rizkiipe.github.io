@@ -9,8 +9,13 @@ import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.provider.Settings;
+import android.view.View;
+import android.content.res.Resources;
 
 import androidx.core.content.FileProvider;
+import androidx.core.graphics.Insets;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowInsetsCompat;
 
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
@@ -31,13 +36,39 @@ public class ApkUpdaterPlugin extends Plugin {
     private File apkFile;
 
     @PluginMethod
-    public void getInsets(PluginCall call) {
-        JSObject r = new JSObject();
-        r.put("top", MainActivity.insetTop);
-        r.put("bottom", MainActivity.insetBottom);
-        r.put("left", MainActivity.insetLeft);
-        r.put("right", MainActivity.insetRight);
-        call.resolve(r);
+    public void getInsets(final PluginCall call) {
+        getActivity().runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                double top = 0, bottom = 0, left = 0, right = 0;
+                try {
+                    Resources res = getContext().getResources();
+                    float d = res.getDisplayMetrics().density;
+                    View decor = getActivity().getWindow().getDecorView();
+                    WindowInsetsCompat wi = ViewCompat.getRootWindowInsets(decor);
+                    if (wi != null) {
+                        Insets bars = wi.getInsets(
+                                WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout());
+                        top = bars.top / d;
+                        bottom = bars.bottom / d;
+                        left = bars.left / d;
+                        right = bars.right / d;
+                    } else {
+                        int id = res.getIdentifier("status_bar_height", "dimen", "android");
+                        if (id > 0) {
+                            top = res.getDimensionPixelSize(id) / d;
+                        }
+                    }
+                } catch (Exception ignored) {
+                }
+                JSObject r = new JSObject();
+                r.put("top", top);
+                r.put("bottom", bottom);
+                r.put("left", left);
+                r.put("right", right);
+                call.resolve(r);
+            }
+        });
     }
 
     @PluginMethod
