@@ -21,5 +21,14 @@
       "insetsHandling": "automatic",
       "style": "DARK"
     }
+    "plugins": {
+      "StatusBar": {
+        "overlaysWebView": false,
+        "backgroundColor": "#07131e",
+        "style": "DARK"
+    }
+  }
+}
+
   }
 }
