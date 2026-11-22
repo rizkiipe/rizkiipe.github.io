@@ -1,8 +1,12 @@
 package com.utrack.app;
 
 import android.graphics.Color;
+import android.graphics.drawable.ColorDrawable;
+import android.os.Build;
 import android.os.Bundle;
 import android.view.View;
+import android.view.Window;
+import android.view.WindowManager;
 
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
@@ -18,12 +22,24 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(ApkUpdaterPlugin.class);
         super.onCreate(savedInstanceState);
 
-        // Latar gelap untuk area status bar / gesture bar, ikon status bar terang
-        getWindow().getDecorView().setBackgroundColor(Color.parseColor("#0A0E17"));
-        WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
-        WindowInsetsControllerCompat controller =
-                WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView());
-        controller.setAppearanceLightStatusBars(false);
+        final int dark = Color.parseColor("#0A0E17");
+        Window w = getWindow();
+
+        // Status bar & navigation bar transparan; yang terlihat di belakangnya adalah latar gelap app
+        w.clearFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS);
+        w.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS);
+        w.setBackgroundDrawable(new ColorDrawable(dark));
+        w.getDecorView().setBackgroundColor(dark);
+        w.setStatusBarColor(Color.TRANSPARENT);
+        w.setNavigationBarColor(Color.TRANSPARENT);
+        if (Build.VERSION.SDK_INT >= 29) {
+            w.setStatusBarContrastEnforced(false);
+            w.setNavigationBarContrastEnforced(false);
+        }
+
+        WindowCompat.setDecorFitsSystemWindows(w, false);
+        WindowInsetsControllerCompat controller = WindowCompat.getInsetsController(w, w.getDecorView());
+        controller.setAppearanceLightStatusBars(false);      // ikon status bar terang
         controller.setAppearanceLightNavigationBars(false);
 
         // Beri jarak agar isi app tidak menabrak status bar, notch, gesture bar, dan keyboard
