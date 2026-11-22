@@ -8724,6 +8724,18 @@ function initRipple(){
     el.appendChild(sp); setTimeout(() => sp.remove(), 600);
   }, { passive: true });
 }
+/* Ukuran status bar / gesture bar dari Android -> CSS --safe-area-inset-* */
+function setInsets(top, bottom, left, right){
+  const st = document.documentElement.style;
+  st.setProperty('--safe-area-inset-top', (top || 0) + 'px');
+  st.setProperty('--safe-area-inset-bottom', (bottom || 0) + 'px');
+  st.setProperty('--safe-area-inset-left', (left || 0) + 'px');
+  st.setProperty('--safe-area-inset-right', (right || 0) + 'px');
+}
+window.__setInsets = setInsets;
+async function pullInsets(){
+  try{ const r = await capP('ApkUpdater').getInsets(); setInsets(r.top, r.bottom, r.left, r.right); }catch(e){}
+}
 function initNativeShell(){
   const safe = (name, f) => { try{ f(); }catch(e){ console.error('native:' + name, e); } };
   // Tombol Back Android: tutup panel -> kembali ke menu utama -> tekan 2x untuk keluar
@@ -8761,6 +8773,7 @@ function initNativeShell(){
   });
   safe('statusbar', () => { const SB = capP('StatusBar'); SB.setStyle({ style: 'DARK' }); SB.setBackgroundColor({ color: '#0A0E17' }); });
   safe('splash', () => { capP('SplashScreen').hide(); });
+  safe('insets', () => { pullInsets(); setTimeout(pullInsets, 600); setTimeout(pullInsets, 2000); window.addEventListener('resize', pullInsets); });
   safe('ptr', initPullToRefresh);
   safe('ripple', initRipple);
   safe('update', () => setTimeout(nativeCheckUpdate, 2500));
@@ -8829,7 +8842,7 @@ Object.assign(window, {
 <div id="appVersion" style="text-align:center;font:500 11px 'IBM Plex Mono',monospace;color:var(--muted);opacity:.75;padding:14px 0 4px"></div>
 <script>
 /* APP_VERSION diisi otomatis oleh workflow rilis (jangan diubah manual). */
-var APP_VERSION = '1.0.3';
+var APP_VERSION = '1.0.0';
 (function(){
   var el = document.getElementById('appVersion');
   if(el) el.textContent = 'U-Track v' + APP_VERSION + (window.IS_NATIVE ? '' : ' · Web');
