@@ -8731,10 +8731,19 @@ function setInsets(top, bottom, left, right){
   st.setProperty('--safe-area-inset-bottom', (bottom || 0) + 'px');
   st.setProperty('--safe-area-inset-left', (left || 0) + 'px');
   st.setProperty('--safe-area-inset-right', (right || 0) + 'px');
+  const f = document.getElementById('appVersion');
+  if(f){ if(!f.dataset.base) f.dataset.base = f.textContent; f.textContent = f.dataset.base + ' · inset ' + Math.round(top || 0) + '/' + Math.round(bottom || 0); }
 }
 window.__setInsets = setInsets;
 async function pullInsets(){
-  try{ const r = await capP('ApkUpdater').getInsets(); setInsets(r.top, r.bottom, r.left, r.right); }catch(e){}
+  try{
+    const r = await capP('ApkUpdater').getInsets();
+    setInsets(r.top, r.bottom, r.left, r.right);
+  }catch(e){
+    console.error('getInsets', e);
+    const f = document.getElementById('appVersion');
+    if(f){ if(!f.dataset.base) f.dataset.base = f.textContent; f.textContent = f.dataset.base + ' · inset gagal: ' + ((e && e.message) || e); }
+  }
 }
 function initNativeShell(){
   const safe = (name, f) => { try{ f(); }catch(e){ console.error('native:' + name, e); } };
@@ -8773,7 +8782,7 @@ function initNativeShell(){
   });
   safe('statusbar', () => { const SB = capP('StatusBar'); SB.setStyle({ style: 'DARK' }); SB.setBackgroundColor({ color: '#0A0E17' }); });
   safe('splash', () => { capP('SplashScreen').hide(); });
-  safe('insets', () => { pullInsets(); setTimeout(pullInsets, 600); setTimeout(pullInsets, 2000); window.addEventListener('resize', pullInsets); });
+  safe('insets', () => { [0, 300, 1000, 2500, 5000].forEach(ms => setTimeout(pullInsets, ms)); window.addEventListener('resize', pullInsets); window.addEventListener('orientationchange', () => setTimeout(pullInsets, 400)); });
   safe('ptr', initPullToRefresh);
   safe('ripple', initRipple);
   safe('update', () => setTimeout(nativeCheckUpdate, 2500));
@@ -8842,7 +8851,7 @@ Object.assign(window, {
 <div id="appVersion" style="text-align:center;font:500 11px 'IBM Plex Mono',monospace;color:var(--muted);opacity:.75;padding:14px 0 4px"></div>
 <script>
 /* APP_VERSION diisi otomatis oleh workflow rilis (jangan diubah manual). */
-var APP_VERSION = '1.0.4';
+var APP_VERSION = '1.0.0';
 (function(){
   var el = document.getElementById('appVersion');
   if(el) el.textContent = 'U-Track v' + APP_VERSION + (window.IS_NATIVE ? '' : ' · Web');
