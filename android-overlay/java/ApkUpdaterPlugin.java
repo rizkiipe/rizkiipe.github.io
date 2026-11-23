@@ -12,7 +12,11 @@ import android.provider.Settings;
 import android.view.View;
 import android.content.res.Resources;
 
+import androidx.biometric.BiometricManager;
+import androidx.biometric.BiometricPrompt;
+import androidx.core.content.ContextCompat;
 import androidx.core.content.FileProvider;
+import androidx.fragment.app.FragmentActivity;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
@@ -24,6 +28,7 @@ import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
 
 import java.io.File;
+import java.util.concurrent.Executor;
 
 /**
  * Update APK dari dalam app: unduh (DownloadManager) lalu buka installer Android.
@@ -67,6 +72,51 @@ public class ApkUpdaterPlugin extends Plugin {
                 r.put("left", left);
                 r.put("right", right);
                 call.resolve(r);
+            }
+        });
+    }
+
+    @PluginMethod
+    public void biometricAvailable(PluginCall call) {
+        int r = BiometricManager.from(getContext())
+                .canAuthenticate(BiometricManager.Authenticators.BIOMETRIC_WEAK);
+        JSObject o = new JSObject();
+        o.put("value", r == BiometricManager.BIOMETRIC_SUCCESS);
+        call.resolve(o);
+    }
+
+    @PluginMethod
+    public void biometricAuth(final PluginCall call) {
+        final String title = call.getString("title", "Buka U-Track");
+        final String subtitle = call.getString("subtitle", "Gunakan sidik jari atau wajah");
+        getActivity().runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    FragmentActivity act = (FragmentActivity) getActivity();
+                    Executor executor = ContextCompat.getMainExecutor(getContext());
+                    BiometricPrompt prompt = new BiometricPrompt(act, executor,
+                            new BiometricPrompt.AuthenticationCallback() {
+                                @Override
+                                public void onAuthenticationSucceeded(BiometricPrompt.AuthenticationResult result) {
+                                    call.resolve();
+                                }
+
+                                @Override
+                                public void onAuthenticationError(int errorCode, CharSequence errString) {
+                                    call.reject(String.valueOf(errString));
+                                }
+                            });
+                    BiometricPrompt.PromptInfo info = new BiometricPrompt.PromptInfo.Builder()
+                            .setTitle(title)
+                            .setSubtitle(subtitle)
+                            .setNegativeButtonText("Batal")
+                            .setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_WEAK)
+                            .build();
+                    prompt.authenticate(info);
+                } catch (Exception e) {
+                    call.reject(String.valueOf(e.getMessage()));
+                }
             }
         });
     }
