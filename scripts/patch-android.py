@@ -42,6 +42,7 @@ m = open(mp, encoding="utf-8").read()
 if m.count("</activity>") != 1 or "</manifest>" not in m:
     die("Struktur AndroidManifest tidak dikenali")
 perm = (
+    '    <uses-permission android:name="android.permission.USE_BIOMETRIC" />\n'
     '    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />\n'
     '    <uses-permission android:name="android.permission.CAMERA" />\n'
     '    <uses-feature android:name="android.hardware.camera" android:required="false" />\n'
@@ -68,5 +69,9 @@ g, n1 = re.subn(r'versionCode\s+\d+', 'versionCode ' + code, g, count=1)
 g, n2 = re.subn(r'versionName\s+"[^"]*"', 'versionName "%s"' % version, g, count=1)
 if n1 != 1 or n2 != 1:
     die("versionCode/versionName tidak ditemukan di build.gradle")
+# Dependensi sidik jari/wajah (androidx.biometric)
+g, n3 = re.subn(r'(\ndependencies\s*\{\n)', r'\1    implementation "androidx.biometric:biometric:1.1.0"\n', g, count=1)
+if n3 != 1:
+    die("blok dependencies tidak ditemukan di build.gradle")
 open(bg, "w", encoding="utf-8").write(g)
 print("OK versi", version, code)
