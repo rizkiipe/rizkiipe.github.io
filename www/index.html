@@ -1014,6 +1014,7 @@ html.is-native .pbtn:active,html.is-native .btn-secondary:active,html.is-native 
     <button class="pbtn btn-primary" onclick="doLogin()">Masuk →</button>
     <div style="display:flex;align-items:center;gap:10px;margin:14px 0 4px;color:var(--muted);font-size:12px"><span style="flex:1;height:1px;background:var(--line)"></span>atau<span style="flex:1;height:1px;background:var(--line)"></span></div>
     <button class="pbtn btn-secondary" id="btnGoogleLogin" style="border:1px solid var(--line)" onclick="doGoogleLogin()">Masuk dengan Google</button>
+    <button class="pbtn btn-secondary" id="btnBioLogin" style="display:none;border:1px solid var(--line);margin-top:10px" onclick="bioLogin()">🔐 Masuk dengan sidik jari / wajah</button>
     <button class="pbtn btn-secondary" id="btnInstall" style="margin-top:10px;border:1px solid var(--line)" onclick="installApp()">📲 Install Aplikasi di HP</button>
     <div id="installHint" style="display:none;margin-top:10px;font-size:12.5px;color:var(--muted);text-align:center;line-height:1.5"></div>
   </div>
@@ -3011,9 +3012,16 @@ async function uploadToDrive(){
     data.deEntries.forEach(e => uploadedDeKeysThisSession.add(sessionPrefix + e.deNumber));
 
     showStatus('✓ Tersimpan di Drive folder "' + DRIVE_FOLDER_NAME + '"', 'success');
+    pendingClear(); draftClear();
   }catch(err){
     console.error(err);
-    showStatus('✕ Gagal upload: ' + (err.message || 'unknown error'), 'error');
+    if(isNetErr(err)){
+      pendingMark();
+      showStatus('📴 Tidak ada koneksi — laporan disimpan di HP dan dikirim otomatis saat online', 'info');
+    }else{
+      pendingClear();
+      showStatus('✕ Gagal upload: ' + (err.message || 'unknown error'), 'error');
+    }
   }
 }
 
@@ -6149,7 +6157,7 @@ const AUTH_SALT = '6c6c0df3c97868b81bd22a16315f6e83';
 const AUTH_HASH = '225e4fc9418d85a2e937ad8f678f0a58be1c79fa8ffcb138968a3c470893d875';
 function showLogin(on){
   document.getElementById('loginScreen').classList.toggle('show', on);
-  if(on){ document.getElementById('loginPass').value = ''; document.getElementById('loginErr').textContent = ''; }
+  if(on){ document.getElementById('loginPass').value = ''; document.getElementById('loginErr').textContent = ''; try{ onLoginShown(); }catch(e){} }
 }
 function _hex2bytes(h){ const a = new Uint8Array(h.length / 2); for(let i = 0; i < a.length; i++) a[i] = parseInt(h.substr(i * 2, 2), 16); return a; }
 async function _authHash(u, pw){
@@ -6167,6 +6175,7 @@ async function doLogin(){
   if(ok){
     try{ localStorage.setItem('utrack_auth', '1'); }catch(e){}
     showLogin(false);
+    try{ afterLogin(); }catch(e){}
   }else{
     err.textContent = 'Username atau password salah';
   }
@@ -6174,7 +6183,10 @@ async function doLogin(){
 /* Login Google: pakai token Google yang sama dengan sinkron Drive, lalu baca email akun.
    AUTH_GOOGLE_ALLOWED = daftar hash email yang boleh masuk (kosong = semua akun Google boleh).
    Buat daftarnya lewat tools/buat-hash.html. */
-const AUTH_GOOGLE_ALLOWED = [];
+const AUTH_GOOGLE_ALLOWED = [
+  'c967e48ec8d9522518c4250d9e77668fd8918c6fc2e41e901c0c1632d09cf404',
+  '08df540bc289f9a3a94db2d4aabbd2ea57a9d85fe8a84d79c8c9aaedfde8904b'
+];
 async function _emailHash(email){
   const d = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(AUTH_SALT + ':' + email.trim().toLowerCase()));
   return Array.from(new Uint8Array(d)).map(b => b.toString(16).padStart(2, '0')).join('');
@@ -6198,6 +6210,8 @@ async function doGoogleLogin(){
     }
     try{ localStorage.setItem('utrack_auth', '1'); localStorage.setItem('utrack_user', email); }catch(e){}
     showLogin(false);
+    try{ afterLogin(); }catch(e){}
+    setTimeout(() => { try{ pendingFlush(); }catch(e){} }, 1500);
   }catch(e){
     err.textContent = 'Login Google gagal: ' + (e && e.message ? e.message : e);
   }finally{
@@ -6214,7 +6228,7 @@ let _auth = false; try{ _auth = localStorage.getItem('utrack_auth') === '1'; }ca
 showLogin(!_auth);
 function updateChips(){
   const a = document.getElementById('chipSync'), b = document.getElementById('chipLive');
-  a.textContent = accessToken ? 'Synced' : 'Offline'; a.classList.toggle('ok', !!accessToken);
+  a.textContent = pendingExists() ? 'Tertunda' : (accessToken ? 'Synced' : 'Offline'); a.classList.toggle('ok', !!accessToken && !pendingExists());
   b.textContent = sheetSyncOn ? 'Live' : 'Off'; b.classList.toggle('ok', !!sheetSyncOn);
 }
 setInterval(() => { updateChips(); if(curPage === 'de' && document.getElementById('sub-dash').classList.contains('on')) updateSummary(); }, 2000);
@@ -8642,16 +8656,16 @@ function isNewerVer(a, b){
   for(let i = 0; i < Math.max(x.length, y.length); i++){ const p = x[i] || 0, q = y[i] || 0; if(p !== q) return p > q; }
   return false;
 }
-async function nativeCheckUpdate(){
+async function nativeCheckUpdate(force){
   try{
     const r = await fetch('https://api.github.com/repos/' + UPDATE_REPO + '/releases/latest', { headers: { Accept: 'application/vnd.github+json' } });
-    if(!r.ok) return;
+    if(!r.ok){ if(force) showStatus('✕ Gagal cek update', 'error'); return; }
     const j = await r.json();
     const tag = String(j.tag_name || '').replace(/^v/i, '');
     const asset = (j.assets || []).find(a => /\.apk$/i.test(a.name));
-    if(!tag || !asset || !isNewerVer(tag, APP_VERSION)) return;
+    if(!tag || !asset || !isNewerVer(tag, APP_VERSION)){ if(force) showStatus('✓ Sudah versi terbaru (v' + APP_VERSION + ')', 'success'); return; }
     showUpdateSheet(tag, j.body || '', asset.browser_download_url);
-  }catch(e){}
+  }catch(e){ if(force) showStatus('✕ Gagal cek update: ' + ((e && e.message) || e), 'error'); }
 }
 function showUpdateSheet(ver, notes, url){
   if(document.getElementById('updBg')) return;
@@ -8753,7 +8767,7 @@ function initNativeShell(){
     capP('App').addListener('backButton', () => {
       const open = document.querySelector('.modal-bg.open');
       if(open){ open.classList.remove('open'); return; }
-      const upd = document.getElementById('updBg'); if(upd){ upd.remove(); return; }
+      const upd = document.getElementById('updBg') || document.getElementById('setBg') || document.getElementById('bioBg'); if(upd){ upd.remove(); return; }
       if(document.getElementById('loginScreen').classList.contains('show')){ capP('App').exitApp(); return; }
       if(curPage !== 'de'){ showPage('de'); return; }
       const now = Date.now();
@@ -8785,9 +8799,206 @@ function initNativeShell(){
   safe('insets', () => { [0, 300, 1000, 2500, 5000].forEach(ms => setTimeout(pullInsets, ms)); window.addEventListener('resize', pullInsets); window.addEventListener('orientationchange', () => setTimeout(pullInsets, 400)); });
   safe('ptr', initPullToRefresh);
   safe('ripple', initRipple);
+  safe('extras', initExtras);
   safe('update', () => setTimeout(nativeCheckUpdate, 2500));
 }
 if(IS_NATIVE){ try{ initNativeShell(); }catch(e){ console.error('initNativeShell', e); } }
+
+/* ===================== FITUR 1.1 ===================== */
+/* --- Draf otomatis + antrean offline (semua platform) --- */
+const DRAFT_KEY = 'utrack_draft_de', PENDING_KEY = 'utrack_pending_save';
+let _draftLast = '';
+function draftSnapshot(){
+  const d = collectData(); delete d.updatedAt;
+  d.deEntries = (d.deEntries || []).map(e => { const c = Object.assign({}, e); delete c.photo; return c; });   // foto tidak ikut draf (terlalu besar)
+  return d;
+}
+function draftSave(){
+  try{
+    const snap = draftSnapshot();
+    const has = snap.deEntries.some(e => String(e.deNumber || '').trim()) || String(snap.meta.pengawas || '').trim() || String(snap.meta.info || '').trim();
+    if(!has) return;
+    const j = JSON.stringify(snap);
+    if(j === _draftLast) return;
+    _draftLast = j;
+    localStorage.setItem(DRAFT_KEY, JSON.stringify({ at: Date.now(), data: snap }));
+  }catch(e){}
+}
+function draftClear(){ try{ localStorage.removeItem(DRAFT_KEY); }catch(e){} _draftLast = ''; }
+function draftRestoreIfEmpty(){
+  try{
+    const raw = localStorage.getItem(DRAFT_KEY); if(!raw) return;
+    const o = JSON.parse(raw);
+    if(!o || !o.data || Date.now() - o.at > 14 * 3600 * 1000) return;
+    if(deEntries.some(e => String(e.deNumber || '').trim())) return;
+    if(!(o.data.deEntries || []).some(e => String(e.deNumber || '').trim())) return;
+    populateFromData(o.data);
+    showStatus('↺ Draf dipulihkan (' + Math.max(1, Math.round((Date.now() - o.at) / 60000)) + ' menit lalu)', 'info');
+  }catch(e){ console.error('draft', e); }
+}
+function pendingGet(){ try{ return JSON.parse(localStorage.getItem(PENDING_KEY) || 'null'); }catch(e){ return null; } }
+function pendingExists(){ return !!pendingGet(); }
+function pendingMark(){ draftSave(); if(!pendingGet()){ try{ localStorage.setItem(PENDING_KEY, JSON.stringify({ at: Date.now(), tries: 0 })); }catch(e){} } }
+function pendingClear(){ try{ localStorage.removeItem(PENDING_KEY); }catch(e){} }
+function isNetErr(err){
+  const m = String((err && err.message) || err || '');
+  return !navigator.onLine || (err instanceof TypeError) || /failed to fetch|network|load failed|timeout/i.test(m);
+}
+let _flushing = false;
+async function pendingFlush(){
+  const p = pendingGet();
+  if(!p || _flushing || !navigator.onLine || document.hidden) return;
+  if(document.getElementById('loginScreen').classList.contains('show')) return;
+  if((p.tries || 0) >= 3){ pendingClear(); showStatus('Laporan tertunda belum terkirim — tekan Save untuk mencoba lagi', 'error'); return; }
+  p.tries = (p.tries || 0) + 1;
+  try{ localStorage.setItem(PENDING_KEY, JSON.stringify(p)); }catch(e){}
+  _flushing = true;
+  try{ showStatus('Mengirim laporan yang tertunda…', 'info'); await fabSaveDrive(); }
+  finally{ _flushing = false; }
+}
+setInterval(draftSave, 4000);
+document.addEventListener('visibilitychange', () => { if(document.hidden) draftSave(); else setTimeout(pendingFlush, 1500); });
+window.addEventListener('pagehide', draftSave);
+window.addEventListener('online', () => setTimeout(pendingFlush, 1500));
+setTimeout(draftRestoreIfEmpty, 800);
+setTimeout(pendingFlush, 3500);
+
+/* --- Lembar bawah (bottom sheet) --- */
+function mkSheet(id, html){
+  const old = document.getElementById(id); if(old) old.remove();
+  const bg = document.createElement('div'); bg.id = id;
+  bg.style.cssText = 'position:fixed;inset:0;background:rgba(4,7,14,.8);z-index:300;display:flex;align-items:flex-end;justify-content:center';
+  bg.innerHTML = '<div style="width:100%;max-width:520px;background:#131C30;border-radius:24px 24px 0 0;padding:22px 20px calc(20px + var(--sab));border-top:1px solid var(--line);max-height:88vh;overflow:auto">' + html + '</div>';
+  bg.addEventListener('click', e => { if(e.target === bg) bg.remove(); });
+  document.body.appendChild(bg);
+  return bg;
+}
+const SHEET_TITLE = "font:800 20px 'Big Shoulders Display',sans-serif;letter-spacing:.02em";
+const ROW = 'display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--line)';
+
+/* --- Sidik jari / wajah (hanya di APK) --- */
+const BIO_KEY = 'utrack_bio';
+function bioEnabled(){ try{ return localStorage.getItem(BIO_KEY) === '1'; }catch(e){ return false; } }
+async function bioAvailable(){ if(!IS_NATIVE) return false; try{ return !!(await capP('ApkUpdater').biometricAvailable()).value; }catch(e){ return false; } }
+async function bioAuth(title, sub){
+  try{ await capP('ApkUpdater').biometricAuth({ title: title || 'Buka U-Track', subtitle: sub || 'Gunakan sidik jari atau wajah' }); return true; }
+  catch(e){ return false; }
+}
+let _bioBusy = false;
+async function bioLogin(){
+  if(_bioBusy) return; _bioBusy = true;
+  try{
+    if(await bioAuth('Buka U-Track', 'Gunakan sidik jari atau wajah')){
+      try{ localStorage.setItem('utrack_auth', '1'); }catch(e){}
+      showLogin(false);
+      setTimeout(pendingFlush, 1500);
+    }
+  }finally{ _bioBusy = false; }
+}
+function onLoginShown(){
+  if(!IS_NATIVE) return;
+  const on = bioEnabled();
+  const btn = document.getElementById('btnBioLogin');
+  if(btn) btn.style.display = on ? '' : 'none';
+  if(on) setTimeout(bioLogin, 350);
+}
+async function afterLogin(){
+  if(!IS_NATIVE) return;
+  let decided = null; try{ decided = localStorage.getItem(BIO_KEY); }catch(e){}
+  if(decided !== null) return;
+  if(!(await bioAvailable())) return;
+  const el = mkSheet('bioBg',
+    '<div style="' + SHEET_TITLE + '">Masuk lebih cepat?</div>'
+    + '<div style="color:var(--muted);font-size:13px;margin:6px 0 16px">Aktifkan sidik jari atau wajah supaya tidak perlu mengetik password setiap membuka U-Track. Bisa diubah kapan saja lewat tombol profil (AD).</div>'
+    + '<div style="display:flex;gap:10px"><button id="bioNo" class="pbtn btn-secondary" style="flex:1;border:1px solid var(--line)">Nanti</button><button id="bioYes" class="pbtn btn-primary" style="flex:1">Aktifkan</button></div>');
+  el.querySelector('#bioNo').onclick = () => { try{ localStorage.setItem(BIO_KEY, '0'); }catch(e){} el.remove(); };
+  el.querySelector('#bioYes').onclick = async () => {
+    if(await bioAuth('Aktifkan sidik jari / wajah', 'Konfirmasi dengan sidik jari atau wajah')){
+      try{ localStorage.setItem(BIO_KEY, '1'); }catch(e){}
+      showStatus('✓ Sidik jari / wajah diaktifkan', 'success');
+    }
+    el.remove();
+  };
+}
+
+/* --- Pengingat simpan laporan per shift (notifikasi lokal) --- */
+const REM_KEY = 'utrack_remind';
+function remGet(){
+  try{ const o = JSON.parse(localStorage.getItem(REM_KEY) || 'null'); if(o && Array.isArray(o.times)) return o; }catch(e){}
+  return { on: false, times: ['13:30', '21:30', '05:30'] };
+}
+function remSet(o){ try{ localStorage.setItem(REM_KEY, JSON.stringify(o)); }catch(e){} }
+async function remApply(ask){
+  const LN = capP('LocalNotifications'), o = remGet();
+  try{ await LN.cancel({ notifications: [{ id: 9001 }, { id: 9002 }, { id: 9003 }] }); }catch(e){}
+  if(!o.on) return true;
+  let perm = await LN.checkPermissions();
+  if(perm.display !== 'granted'){
+    if(!ask) return false;
+    perm = await LN.requestPermissions();
+    if(perm.display !== 'granted'){ showStatus('✕ Izin notifikasi ditolak — aktifkan di pengaturan HP', 'error'); return false; }
+  }
+  const notifications = o.times.slice(0, 3).map((t, i) => {
+    const p = String(t).split(':'), hh = parseInt(p[0], 10) || 0, mm = parseInt(p[1], 10) || 0;
+    return { id: 9001 + i, title: 'U-Track', body: 'Waktunya simpan Laporan Shift ' + (i + 1) + '. Buka U-Track lalu tekan Save.', schedule: { on: { hour: hh, minute: mm }, allowWhileIdle: true } };
+  });
+  await LN.schedule({ notifications: notifications });
+  return true;
+}
+
+/* --- Pengaturan (ketuk lingkaran profil "AD") --- */
+async function openSettings(){
+  let user = ''; try{ user = localStorage.getItem('utrack_user') || ''; }catch(e){}
+  const bioOk = await bioAvailable(), rem = remGet();
+  const time = (i, label) => '<div style="' + ROW + '"><span>' + label + '</span><input type="time" id="remT' + i + '" value="' + escHtml(rem.times[i] || '') + '" style="background:#19233B;border:1px solid var(--line);border-radius:10px;color:var(--text);padding:8px 10px;font:inherit"></div>';
+  const el = mkSheet('setBg',
+    '<div style="' + SHEET_TITLE + '">Pengaturan</div>'
+    + '<div style="color:var(--muted);font-size:13px;margin:4px 0 8px">' + escHtml(user || 'Admin') + ' · U-Track v' + escHtml(APP_VERSION) + '</div>'
+    + (bioOk
+        ? '<label style="' + ROW + '"><span>Masuk dengan sidik jari / wajah</span><input type="checkbox" id="setBio" ' + (bioEnabled() ? 'checked' : '') + ' style="width:22px;height:22px;accent-color:#33D8C9"></label>'
+        : '<div style="' + ROW + ';color:var(--muted);font-size:13px">Sidik jari / wajah tidak tersedia di HP ini</div>')
+    + '<label style="' + ROW + '"><span>Pengingat simpan laporan</span><input type="checkbox" id="setRem" ' + (rem.on ? 'checked' : '') + ' style="width:22px;height:22px;accent-color:#33D8C9"></label>'
+    + '<div id="remBox" style="display:' + (rem.on ? 'block' : 'none') + '">'
+    + time(0, 'Shift 1 — ingatkan pukul') + time(1, 'Shift 2 — ingatkan pukul') + time(2, 'Shift 3 — ingatkan pukul') + '</div>'
+    + '<div style="display:flex;gap:10px;margin-top:16px"><button id="setUpd" class="pbtn btn-secondary" style="flex:1;border:1px solid var(--line)">Cek update</button><button id="setClose" class="pbtn btn-primary" style="flex:1">Tutup</button></div>');
+  const q = s => el.querySelector(s);
+  if(bioOk) q('#setBio').onchange = async ev => {
+    if(ev.target.checked){
+      if(await bioAuth('Aktifkan sidik jari / wajah', 'Konfirmasi dengan sidik jari atau wajah')){ try{ localStorage.setItem(BIO_KEY, '1'); }catch(e){} showStatus('✓ Sidik jari / wajah diaktifkan', 'success'); }
+      else ev.target.checked = false;
+    }else{ try{ localStorage.setItem(BIO_KEY, '0'); }catch(e){} showStatus('Sidik jari / wajah dimatikan', 'info'); }
+  };
+  const saveRem = async (askPerm) => {
+    const o = { on: q('#setRem').checked, times: [0, 1, 2].map(i => q('#remT' + i).value || ['13:30', '21:30', '05:30'][i]) };
+    remSet(o);
+    q('#remBox').style.display = o.on ? 'block' : 'none';
+    try{
+      const ok = await remApply(askPerm);
+      if(o.on && ok) showStatus('✓ Pengingat aktif', 'success');
+      if(o.on && !ok){ q('#setRem').checked = false; o.on = false; remSet(o); q('#remBox').style.display = 'none'; }
+    }catch(e){ showStatus('✕ Pengingat gagal diatur: ' + ((e && e.message) || e), 'error'); }
+  };
+  q('#setRem').onchange = () => saveRem(true);
+  [0, 1, 2].forEach(i => { q('#remT' + i).onchange = () => saveRem(true); });
+  q('#setUpd').onclick = () => { el.remove(); nativeCheckUpdate(true); };
+  q('#setClose').onclick = () => el.remove();
+}
+
+function initExtras(){
+  const av = document.querySelector('.avatar');
+  if(av){ av.style.cursor = 'pointer'; av.addEventListener('click', openSettings); }
+  let hiddenAt = 0;
+  capP('App').addListener('appStateChange', st => {
+    if(!st.isActive){ hiddenAt = Date.now(); draftSave(); return; }
+    let authed = false; try{ authed = localStorage.getItem('utrack_auth') === '1'; }catch(e){}
+    if(authed && bioEnabled() && hiddenAt && Date.now() - hiddenAt > 5 * 60 * 1000) showLogin(true);
+    else setTimeout(pendingFlush, 1500);
+    hiddenAt = 0;
+  });
+  setTimeout(() => { remApply(false).catch(() => {}); }, 4000);
+}
+// Kunci saat app dibuka dingin: minta sidik jari/wajah bila diaktifkan
+if(IS_NATIVE){ let a = false; try{ a = localStorage.getItem('utrack_auth') === '1'; }catch(e){} if(a && bioEnabled()) showLogin(true); }
 
 Object.assign(window, {
   addDE, addProductSeg, addAllDE, clearDEList, addDE1, addDE2, addDE3, removeDE, addProblem, removeProblem, updateField, updateDeNumber, updateProblem, setStatus,
@@ -8796,7 +9007,7 @@ Object.assign(window, {
   generateReport, setReportLine, closeModal, copyReport, copyReportGroup, copyImageGroup, setImageGroup, downloadTxt, saveJSON, loadJSON, generateDeImage, closeImageModal, copyImage, downloadImage,
   uploadToDrive, fabSaveDrive, openHistory, openHistoryGuarded, closeHistory, loadFromDrive, deleteHistoryFile, deleteAllHistory, deleteSelectedHistory, shareSelectedHistory, importHistoryFiles,
   generateAndUploadWeeklyRecap, generateAndUploadMonthlyRecap, closeRecap, setRecapMode, showPeriodRecap, downloadPeriodRecapXlsx, toggleRecapMachine, clearRecapMachines, setRecapSort,
-  toggleSheetSync, sheetSyncOnce, showPage, showSub, doLogin, doGoogleLogin, pickCamera, installApp, generateLaporan, setLaporanLine, loadDash, resetAllData, doLogout,
+  toggleSheetSync, sheetSyncOnce, showPage, showSub, doLogin, doGoogleLogin, pickCamera, bioLogin, installApp, generateLaporan, setLaporanLine, loadDash, resetAllData, doLogout,
   effToggleResult, dspFind, dspCreateYear, dspSave, dspClear, dspGrpChange, dspShiftChange, dspDateChange,
   effLoad, effGrant, effPickMonth, effAuto, effSetRange, effPickShift, effSetSort, effQuick, effToggle, effGenImage, effDownloadImage, effCopyImage, openWaImport, closeWaImport, waReadPaste, waRunParse, waApply, openPbImport, closePbImport, runPbOcr, pbRowSet, pbRowSku, importPbRows,
   checkPalletHold, updateRework, updateReworkDe, removeRework, addReworkManual, saveReworkToDrive, loadReworkFromDrive,
@@ -8851,7 +9062,7 @@ Object.assign(window, {
 <div id="appVersion" style="text-align:center;font:500 11px 'IBM Plex Mono',monospace;color:var(--muted);opacity:.75;padding:14px 0 4px"></div>
 <script>
 /* APP_VERSION diisi otomatis oleh workflow rilis (jangan diubah manual). */
-var APP_VERSION = '1.0.7';
+var APP_VERSION = '1.0.0';
 (function(){
   var el = document.getElementById('appVersion');
   if(el) el.textContent = 'U-Track v' + APP_VERSION + (window.IS_NATIVE ? '' : ' · Web');
