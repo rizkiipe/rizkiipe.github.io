@@ -540,7 +540,7 @@ html.is-native .pbtn:active,html.is-native .btn-secondary:active,html.is-native 
 <div id="topbar">
   <div class="brand">U-<b>Track</b><span class="orb"></span></div>
   <span class="chip" id="chipSync">Offline</span><span class="chip" id="chipLive">Off</span>
-  <div class="avatar">AD</div>
+  <div class="avatar" aria-label="Pengguna"><svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8"/></svg></div>
   <button class="logout" onclick="doLogout()">Logout</button>
 </div>
 
@@ -563,7 +563,7 @@ html.is-native .pbtn:active,html.is-native .btn-secondary:active,html.is-native 
       <select id="meta-shift" onchange="handleShiftChange()"><option>Shift 1</option><option>Shift 2</option><option>Shift 3</option></select>
     </div>
     <div class="field"><label>Group</label>
-      <select id="meta-group">
+      <select id="meta-group" onchange="handleGroupChange()">
         <option value="DE - Group A">DE - Group A</option>
         <option value="DE - Group B">DE - Group B</option>
         <option value="DE - Group C">DE - Group C</option>
@@ -1104,6 +1104,11 @@ function passwordAuth(msg){
 }
 // Mengembalikan true (lolos), false (gagal/salah), atau null (dibatalkan pengguna)
 async function authorizeOverwrite(what){
+  // Bila dinyalakan di Pengaturan (APK): hanya sidik jari / wajah, tanpa password
+  if(typeof bioOverwriteEnabled === 'function' && bioOverwriteEnabled() && await bioAvailable()){
+    const ok = await bioAuth('Timpa laporan', String(what || '').split('\n')[0].slice(0, 120));
+    return ok ? true : null;   // null = dibatalkan -> upload dibatalkan
+  }
   const pwMsg = `${what}\nMasukkan password untuk MENIMPA (batalkan untuk membatalkan upload):`;
   if(!(await deviceAuthAvailable())){
     const pw = prompt(pwMsg);
@@ -1927,6 +1932,24 @@ function handleTanggalChange(){
   });
   render();
   followPrevShiftForAll();
+}
+
+function handleGroupChange(){
+  const group = document.getElementById('meta-group').value;
+  if(hasAutoRoster(group)){
+    deEntries.forEach(de => {
+      if(!de.deNumber) return;
+      const opList = operatorsForMachine(Number(de.deNumber), currentRosterDate(), group);
+      if(hasDualOperators(de.deNumber)){
+        de.operator = '';
+        de.operatorBox = opList[0] || '';
+        de.operatorCap = opList[1] || '';
+      }else{
+        de.operator = opList.length === 1 ? opList[0] : '';   // bila lebih dari satu pilihan, kosongkan agar dipilih dari daftar
+      }
+    });
+  }
+  render();
 }
 
 function handleShiftChange(){
@@ -8918,7 +8941,8 @@ const SHEET_TITLE = "font:800 20px 'Big Shoulders Display',sans-serif;letter-spa
 const ROW = 'display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--line)';
 
 /* --- Sidik jari / wajah (hanya di APK) --- */
-const BIO_KEY = 'utrack_bio';
+const BIO_KEY = 'utrack_bio', BIO_OW_KEY = 'utrack_bio_ow';
+function bioOverwriteEnabled(){ try{ return localStorage.getItem(BIO_OW_KEY) === '1'; }catch(e){ return false; } }
 function bioEnabled(){ try{ return localStorage.getItem(BIO_KEY) === '1'; }catch(e){ return false; } }
 async function bioAvailable(){ if(!IS_NATIVE) return false; try{ return !!(await capP('ApkUpdater').biometricAvailable()).value; }catch(e){ return false; } }
 async function bioAuth(title, sub){
@@ -8943,24 +8967,8 @@ function onLoginShown(){
   if(btn) btn.style.display = on ? '' : 'none';
   if(on) setTimeout(bioLogin, 350);
 }
-async function afterLogin(){
-  if(!IS_NATIVE) return;
-  let decided = null; try{ decided = localStorage.getItem(BIO_KEY); }catch(e){}
-  if(decided !== null) return;
-  if(!(await bioAvailable())) return;
-  const el = mkSheet('bioBg',
-    '<div style="' + SHEET_TITLE + '">Masuk lebih cepat?</div>'
-    + '<div style="color:var(--muted);font-size:13px;margin:6px 0 16px">Aktifkan sidik jari atau wajah supaya tidak perlu mengetik password setiap membuka U-Track. Bisa diubah kapan saja lewat tombol profil (AD).</div>'
-    + '<div style="display:flex;gap:10px"><button id="bioNo" class="pbtn btn-secondary" style="flex:1;border:1px solid var(--line)">Nanti</button><button id="bioYes" class="pbtn btn-primary" style="flex:1">Aktifkan</button></div>');
-  el.querySelector('#bioNo').onclick = () => { try{ localStorage.setItem(BIO_KEY, '0'); }catch(e){} el.remove(); };
-  el.querySelector('#bioYes').onclick = async () => {
-    if(await bioAuth('Aktifkan sidik jari / wajah', 'Konfirmasi dengan sidik jari atau wajah')){
-      try{ localStorage.setItem(BIO_KEY, '1'); }catch(e){}
-      showStatus('✓ Sidik jari / wajah diaktifkan', 'success');
-    }
-    el.remove();
-  };
-}
+// Tawaran kunci sidik jari dihapus: kunci app hanya aktif bila dinyalakan sendiri di Pengaturan.
+async function afterLogin(){}
 
 /* --- Pengingat simpan laporan per shift (notifikasi lokal) --- */
 const REM_KEY = 'utrack_remind';
@@ -8987,7 +8995,7 @@ async function remApply(ask){
   return true;
 }
 
-/* --- Pengaturan (ketuk lingkaran profil "AD") --- */
+/* --- Pengaturan (ketuk ikon pengguna di pojok atas) --- */
 async function openSettings(){
   let user = ''; try{ user = localStorage.getItem('utrack_user') || ''; }catch(e){}
   const bioOk = await bioAvailable(), rem = remGet();
@@ -8996,7 +9004,8 @@ async function openSettings(){
     '<div style="' + SHEET_TITLE + '">Pengaturan</div>'
     + '<div style="color:var(--muted);font-size:13px;margin:4px 0 8px">' + escHtml(user || 'Admin') + ' · U-Track v' + escHtml(APP_VERSION) + '</div>'
     + (bioOk
-        ? '<label style="' + ROW + '"><span>Masuk dengan sidik jari / wajah</span><input type="checkbox" id="setBio" ' + (bioEnabled() ? 'checked' : '') + ' style="width:22px;height:22px;accent-color:#33D8C9"></label>'
+        ? '<label style="' + ROW + '"><span>Kunci app dengan sidik jari / wajah<br><small style="color:var(--muted)">Diminta saat app dibuka dan setelah ditinggal 5 menit</small></span><input type="checkbox" id="setBio" ' + (bioEnabled() ? 'checked' : '') + ' style="width:22px;height:22px;accent-color:#33D8C9"></label>'
+          + '<label style="' + ROW + '"><span>Timpa laporan dengan sidik jari / wajah<br><small style="color:var(--muted)">Tanpa password saat laporan yang sama sudah ada</small></span><input type="checkbox" id="setBioOw" ' + (bioOverwriteEnabled() ? 'checked' : '') + ' style="width:22px;height:22px;accent-color:#33D8C9"></label>'
         : '<div style="' + ROW + ';color:var(--muted);font-size:13px">Sidik jari / wajah tidak tersedia di HP ini</div>')
     + '<label style="' + ROW + '"><span>Pengingat simpan laporan</span><input type="checkbox" id="setRem" ' + (rem.on ? 'checked' : '') + ' style="width:22px;height:22px;accent-color:#33D8C9"></label>'
     + '<div id="remBox" style="display:' + (rem.on ? 'block' : 'none') + '">'
@@ -9008,6 +9017,12 @@ async function openSettings(){
       if(await bioAuth('Aktifkan sidik jari / wajah', 'Konfirmasi dengan sidik jari atau wajah')){ try{ localStorage.setItem(BIO_KEY, '1'); }catch(e){} showStatus('✓ Sidik jari / wajah diaktifkan', 'success'); }
       else ev.target.checked = false;
     }else{ try{ localStorage.setItem(BIO_KEY, '0'); }catch(e){} showStatus('Sidik jari / wajah dimatikan', 'info'); }
+  };
+  if(bioOk) q('#setBioOw').onchange = async ev => {
+    if(ev.target.checked){
+      if(await bioAuth('Timpa laporan dengan sidik jari / wajah', 'Konfirmasi dengan sidik jari atau wajah')){ try{ localStorage.setItem(BIO_OW_KEY, '1'); }catch(e){} showStatus('✓ Timpa laporan memakai sidik jari / wajah', 'success'); }
+      else ev.target.checked = false;
+    }else{ try{ localStorage.setItem(BIO_OW_KEY, '0'); }catch(e){} showStatus('Timpa laporan kembali memakai password', 'info'); }
   };
   const saveRem = async (askPerm) => {
     const o = { on: q('#setRem').checked, times: [0, 1, 2].map(i => q('#remT' + i).value || ['13:30', '21:30', '05:30'][i]) };
@@ -9070,12 +9085,14 @@ function initExtras(){
     }
   }).catch(() => {});
 }
-// Kunci saat app dibuka dingin: minta sidik jari/wajah bila diaktifkan
+// Migrasi 1.2.1: kunci sidik jari dimatikan sekali agar app langsung terbuka; nyalakan lagi di Pengaturan bila perlu
+try{ if(!localStorage.getItem('utrack_bio_mig2')){ localStorage.setItem(BIO_KEY, '0'); localStorage.setItem('utrack_bio_mig2', '1'); } }catch(e){}
+// Kunci saat app dibuka dingin: minta sidik jari/wajah hanya bila diaktifkan
 if(IS_NATIVE){ let a = false; try{ a = localStorage.getItem('utrack_auth') === '1'; }catch(e){} if(a && bioEnabled()) showLogin(true); }
 
 Object.assign(window, {
   addDE, addProductSeg, addAllDE, clearDEList, addDE1, addDE2, addDE3, removeDE, addProblem, removeProblem, updateField, updateDeNumber, updateProblem, setStatus,
-  updateMachineType, updateProductType, updateRunType, updateBoxCode, updateBoxCode2, regenerateExpiryFromLDate, handleTanggalChange, handleShiftChange,
+  updateMachineType, updateProductType, updateRunType, updateBoxCode, updateBoxCode2, regenerateExpiryFromLDate, handleTanggalChange, handleShiftChange, handleGroupChange,
   setDePhoto, removeDePhoto, closeLightbox, downloadInteractive, setImageMode, setImageLine, setImageLayout, zoomPreview, toggleImgOpts, setImagePart, downloadBothImages,
   generateReport, setReportLine, closeModal, copyReport, copyReportGroup, copyImageGroup, setImageGroup, downloadTxt, saveJSON, loadJSON, generateDeImage, closeImageModal, copyImage, downloadImage,
   uploadToDrive, fabSaveDrive, openHistory, openHistoryGuarded, closeHistory, loadFromDrive, deleteHistoryFile, deleteAllHistory, deleteSelectedHistory, shareSelectedHistory, importHistoryFiles,
@@ -9135,7 +9152,7 @@ Object.assign(window, {
 <div id="appVersion" style="text-align:center;font:500 11px 'IBM Plex Mono',monospace;color:var(--muted);opacity:.75;padding:14px 0 4px"></div>
 <script>
 /* APP_VERSION diisi otomatis oleh workflow rilis (jangan diubah manual). */
-var APP_VERSION = '1.2.0';
+var APP_VERSION = '1.0.0';
 (function(){
   var el = document.getElementById('appVersion');
   if(el) el.textContent = 'U-Track v' + APP_VERSION + (window.IS_NATIVE ? '' : ' · Web');
