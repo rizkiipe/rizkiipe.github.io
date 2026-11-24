@@ -38,7 +38,7 @@ Naikkan nomor versi setiap rilis (1.0.1, 1.0.2, 1.1.0, ...). Nomor harus selalu 
 - **Batasan akun Google**: daftar `AUTH_GOOGLE_ALLOWED` di `www/index.html` berisi hash email yang boleh masuk lewat tombol Google (sudah diisi 2 email pemilik). Tambah email lain lewat `tools/buat-hash.html` bagian bawah. Login username/password tetap sebagai cadangan.
 - **Draf otomatis**: isian Entry disimpan di HP tiap beberapa detik (tanpa foto) dan dipulihkan bila app tertutup (maks. 14 jam). Dihapus setelah berhasil tersimpan di Drive.
 - **Antrean offline**: bila Save gagal karena tidak ada koneksi, laporan ditandai "Tertunda" dan dikirim otomatis saat online/app dibuka lagi (maks. 3 percobaan).
-- **Sidik jari / wajah**: ditawarkan setelah login pertama, bisa diubah di Pengaturan (ketuk lingkaran "AD"). Dipakai saat membuka app dan setelah ditinggal lebih dari 5 menit.
+- **Sidik jari / wajah** (Pengaturan, ketuk ikon pengguna di pojok atas): dua sakelar terpisah, keduanya mati secara bawaan. **Kunci app** meminta sidik jari/wajah saat app dibuka dan setelah ditinggal 5 menit; **Timpa laporan** memakai sidik jari/wajah (tanpa password) saat laporan yang sama sudah ada.
 - **Pengingat shift**: notifikasi harian per shift di Pengaturan; jam bisa diubah (bawaan 13:30, 21:30, 05:30).
 
 ## Fitur 1.2
@@ -51,7 +51,7 @@ App memakai dialog login Google bawaan Android; token diperbarui diam-diam. Syar
 Catatan: app mengikuti satu akun Google per HP. Untuk ganti akun, cabut akses U-Track di pengaturan akun Google HP (Keamanan -> Akses pihak ketiga), lalu login lagi.
 
 **Pencatat error**
-Error JavaScript dan crash aplikasi dicatat di HP. Buka Pengaturan (lingkaran "AD") -> **Log error** -> **Bagikan log** untuk mengirim ke developer.
+Error JavaScript dan crash aplikasi dicatat di HP. Buka Pengaturan (ikon pengguna) -> **Log error** -> **Bagikan log** untuk mengirim ke developer.
 
 **Firebase App Distribution** (opsional, memudahkan rekan menginstal)
 1. Firebase Console -> Project settings -> Your apps -> Add app -> Android, package `com.utrack.app`. Salin **App ID** (bentuk `1:123...:android:abc...`).
@@ -62,6 +62,12 @@ Setiap rilis, APK otomatis dikirim ke grup itu. Langkah ini dilewati bila secret
 
 **Dependabot + cek build**
 `.github/dependabot.yml` membuat pull request mingguan untuk Capacitor/plugin dan versi GitHub Actions. `.github/workflows/build-check.yml` menjalankan build percobaan di tiap pull request sehingga pembaruan yang merusak ketahuan sebelum digabung. Menggabungkan pull request tidak merilis apa pun; rilis tetap lewat workflow Build & Release.
+
+## Perubahan 1.2.1
+- App langsung terbuka tanpa login selama sudah pernah masuk (login tersimpan di HP). Kunci sidik jari hanya aktif bila dinyalakan sendiri di Pengaturan.
+- Mengganti **Group** otomatis mengganti operator mengikuti jadwal group baru (tanggal yang sama).
+- Lingkaran "AD" diganti ikon pengguna.
+- Pengaturan: sakelar baru untuk menimpa laporan dengan sidik jari / wajah saja.
 
 ## Perilaku khas Android (hanya di APK)
 - Tidak ada tombol "Install aplikasi di HP" dan tombol "Muat Ulang"; riwayat/data dimuat dengan **tarik layar ke bawah** di tab terkait.
