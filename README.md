@@ -69,6 +69,9 @@ Setiap rilis, APK otomatis dikirim ke grup itu. Langkah ini dilewati bila secret
 - Lingkaran "AD" diganti ikon pengguna.
 - Pengaturan: sakelar baru untuk menimpa laporan dengan sidik jari / wajah saja.
 
+## Perubahan 1.2.2
+- Semua kolom tanggal tampil **dd/mm/yyyy** (mis. 24/11/2026) di semua perangkat; isi data tetap yyyy-mm-dd sehingga file Drive tidak berubah.
+
 ## Perilaku khas Android (hanya di APK)
 - Tidak ada tombol "Install aplikasi di HP" dan tombol "Muat Ulang"; riwayat/data dimuat dengan **tarik layar ke bawah** di tab terkait.
 - Tombol Back Android: menutup panel, lalu kembali ke menu utama, lalu tekan dua kali untuk keluar.

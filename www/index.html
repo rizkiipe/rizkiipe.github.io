@@ -532,6 +532,13 @@ html.is-native .pbtn:active,html.is-native .btn-secondary:active,html.is-native 
 .rpl{position:absolute;border-radius:50%;background:rgba(255,255,255,.22);transform:scale(0);animation:rpl .55s ease-out forwards;pointer-events:none}
 @keyframes rpl{to{transform:scale(1);opacity:0}}
 #ptr{position:fixed;left:50%;top:calc(var(--sat) + 8px);transform:translate(-50%,-120px);opacity:0;background:#19233B;border:1px solid var(--line);color:var(--cyan);border-radius:20px;padding:6px 14px;font-size:12px;z-index:90;transition:transform .15s,opacity .15s;pointer-events:none}
+
+/* ===== Tampilan tanggal dd/mm/yyyy (nilai tetap yyyy-mm-dd) ===== */
+.dfmt{position:relative;display:block}
+.dfmt>input[type=date]{color:transparent}
+.dfmt>input[type=date]::-webkit-datetime-edit{opacity:0}
+.dfmt-t{position:absolute;left:0;top:0;bottom:0;display:flex;align-items:center;padding-left:10px;pointer-events:none;color:var(--text);white-space:nowrap}
+.dfmt-t.empty{color:var(--muted)}
 </style>
 </head>
 <body>
@@ -9152,10 +9159,48 @@ Object.assign(window, {
 <div id="appVersion" style="text-align:center;font:500 11px 'IBM Plex Mono',monospace;color:var(--muted);opacity:.75;padding:14px 0 4px"></div>
 <script>
 /* APP_VERSION diisi otomatis oleh workflow rilis (jangan diubah manual). */
-var APP_VERSION = '1.2.1';
+var APP_VERSION = '1.0.0';
 (function(){
   var el = document.getElementById('appVersion');
   if(el) el.textContent = 'U-Track v' + APP_VERSION + (window.IS_NATIVE ? '' : ' · Web');
+})();
+</script>
+
+<script>
+/* Semua kolom tanggal tampil dd/mm/yyyy, apa pun bahasa HP. Nilai internal tetap yyyy-mm-dd (data/Drive tidak berubah). */
+(function(){
+  var proto = HTMLInputElement.prototype;
+  var vd = Object.getOwnPropertyDescriptor(proto, 'value');
+  var vad = Object.getOwnPropertyDescriptor(proto, 'valueAsDate');
+  function fmt(v){ return /^\d{4}-\d{2}-\d{2}$/.test(v || '') ? v.slice(8) + '/' + v.slice(5, 7) + '/' + v.slice(0, 4) : ''; }
+  function sync(el){
+    var t = el._dfmt; if(!t) return;
+    var txt = fmt(vd.get.call(el)), show = txt || 'dd/mm/yyyy', cls = 'dfmt-t' + (txt ? '' : ' empty');
+    if(t.textContent !== show) t.textContent = show;
+    if(t.className !== cls) t.className = cls;
+  }
+  function enhance(el){
+    if(el.getAttribute('data-dfmt') || !el.parentNode) return;
+    el.setAttribute('data-dfmt', '1');
+    var wrap = document.createElement('span'); wrap.className = 'dfmt';
+    el.parentNode.insertBefore(wrap, el);
+    wrap.appendChild(el);
+    var t = document.createElement('span'); t.className = 'dfmt-t';
+    wrap.appendChild(t);
+    el._dfmt = t;
+    var cs = getComputedStyle(el);
+    t.style.paddingLeft = cs.paddingLeft; t.style.fontSize = cs.fontSize; t.style.fontFamily = cs.fontFamily;
+    Object.defineProperty(el, 'value', { get: function(){ return vd.get.call(this); }, set: function(v){ vd.set.call(this, v); sync(this); }, configurable: true });
+    if(vad) Object.defineProperty(el, 'valueAsDate', { get: function(){ return vad.get.call(this); }, set: function(v){ vad.set.call(this, v); sync(this); }, configurable: true });
+    sync(el);
+  }
+  function scan(){ var a = document.querySelectorAll('input[type=date]:not([data-dfmt])'); for(var i = 0; i < a.length; i++) enhance(a[i]); }
+  document.addEventListener('input', function(e){ if(e.target && e.target._dfmt) sync(e.target); }, true);
+  document.addEventListener('change', function(e){ if(e.target && e.target._dfmt) sync(e.target); }, true);
+  var pend = false;
+  new MutationObserver(function(){ if(pend) return; pend = true; requestAnimationFrame(function(){ pend = false; scan(); }); }).observe(document.documentElement, { childList: true, subtree: true });
+  setInterval(function(){ var a = document.querySelectorAll('input[type=date][data-dfmt]'); for(var i = 0; i < a.length; i++) sync(a[i]); }, 1000);
+  scan();
 })();
 </script>
 
