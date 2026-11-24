@@ -34,6 +34,35 @@ PERHATIAN: deploy mengganti seluruh isi situs Firebase dengan isi `www/`. File l
 4. Di HP: buka U-Track -> lembar "Update tersedia" -> **Update** -> installer Android -> pasang. Data tetap.
 Naikkan nomor versi setiap rilis (1.0.1, 1.0.2, 1.1.0, ...). Nomor harus selalu lebih besar dari sebelumnya.
 
+## Fitur 1.1
+- **Batasan akun Google**: daftar `AUTH_GOOGLE_ALLOWED` di `www/index.html` berisi hash email yang boleh masuk lewat tombol Google (sudah diisi 2 email pemilik). Tambah email lain lewat `tools/buat-hash.html` bagian bawah. Login username/password tetap sebagai cadangan.
+- **Draf otomatis**: isian Entry disimpan di HP tiap beberapa detik (tanpa foto) dan dipulihkan bila app tertutup (maks. 14 jam). Dihapus setelah berhasil tersimpan di Drive.
+- **Antrean offline**: bila Save gagal karena tidak ada koneksi, laporan ditandai "Tertunda" dan dikirim otomatis saat online/app dibuka lagi (maks. 3 percobaan).
+- **Sidik jari / wajah**: ditawarkan setelah login pertama, bisa diubah di Pengaturan (ketuk lingkaran "AD"). Dipakai saat membuka app dan setelah ditinggal lebih dari 5 menit.
+- **Pengingat shift**: notifikasi harian per shift di Pengaturan; jam bisa diubah (bawaan 13:30, 21:30, 05:30).
+
+## Fitur 1.2
+
+**Login Google tanpa tab Chrome**
+App memakai dialog login Google bawaan Android; token diperbarui diam-diam. Syarat satu kali di Google Cloud Console (proyek yang sama dengan Web client):
+1. Credentials -> Create credentials -> OAuth client ID -> **Android**.
+2. Package name: `com.utrack.app`. SHA-1: ambil dari **Summary** run workflow (bagian "SHA-1 sertifikat"). Simpan.
+3. Selesai, kode tidak perlu diubah. Kalau Android client belum ada, app otomatis memakai tab Chrome seperti sebelumnya.
+Catatan: app mengikuti satu akun Google per HP. Untuk ganti akun, cabut akses U-Track di pengaturan akun Google HP (Keamanan -> Akses pihak ketiga), lalu login lagi.
+
+**Pencatat error**
+Error JavaScript dan crash aplikasi dicatat di HP. Buka Pengaturan (lingkaran "AD") -> **Log error** -> **Bagikan log** untuk mengirim ke developer.
+
+**Firebase App Distribution** (opsional, memudahkan rekan menginstal)
+1. Firebase Console -> Project settings -> Your apps -> Add app -> Android, package `com.utrack.app`. Salin **App ID** (bentuk `1:123...:android:abc...`).
+2. Firebase Console -> App Distribution -> Get started -> Testers & Groups -> buat grup dengan alias `tim` dan tambahkan email rekan.
+3. Google Cloud Console -> IAM -> akun `firebase-adminsdk-...` -> tambahkan peran **Firebase App Distribution Admin**.
+4. GitHub: Settings -> Secrets and variables -> Actions -> secret `FIREBASE_APP_ID` berisi App ID tadi. (Opsional: variable `FIREBASE_DIST_GROUPS` bila alias grup bukan `tim`.)
+Setiap rilis, APK otomatis dikirim ke grup itu. Langkah ini dilewati bila secret `FIREBASE_APP_ID` kosong.
+
+**Dependabot + cek build**
+`.github/dependabot.yml` membuat pull request mingguan untuk Capacitor/plugin dan versi GitHub Actions. `.github/workflows/build-check.yml` menjalankan build percobaan di tiap pull request sehingga pembaruan yang merusak ketahuan sebelum digabung. Menggabungkan pull request tidak merilis apa pun; rilis tetap lewat workflow Build & Release.
+
 ## Perilaku khas Android (hanya di APK)
 - Tidak ada tombol "Install aplikasi di HP" dan tombol "Muat Ulang"; riwayat/data dimuat dengan **tarik layar ke bawah** di tab terkait.
 - Tombol Back Android: menutup panel, lalu kembali ke menu utama, lalu tekan dua kali untuk keluar.

@@ -16,6 +16,11 @@ import androidx.core.view.WindowInsetsControllerCompat;
 
 import com.getcapacitor.BridgeActivity;
 
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.PrintWriter;
+import java.io.StringWriter;
+
 public class MainActivity extends BridgeActivity {
 
     // Ukuran status bar / gesture bar dalam dp (dibaca JS lewat ApkUpdater.getInsets)
@@ -23,6 +28,26 @@ public class MainActivity extends BridgeActivity {
 
     @Override
     public void onCreate(Bundle savedInstanceState) {
+        // Simpan jejak crash ke file; dibaca app saat dibuka lagi (Pengaturan -> Log error)
+        final Thread.UncaughtExceptionHandler previous = Thread.getDefaultUncaughtExceptionHandler();
+        Thread.setDefaultUncaughtExceptionHandler(new Thread.UncaughtExceptionHandler() {
+            @Override
+            public void uncaughtException(Thread t, Throwable e) {
+                try {
+                    StringWriter sw = new StringWriter();
+                    e.printStackTrace(new PrintWriter(sw));
+                    String txt = new java.util.Date().toString() + " [" + t.getName() + "]\n" + sw.toString();
+                    FileOutputStream fos = new FileOutputStream(new File(getFilesDir(), "last_crash.txt"), false);
+                    fos.write(txt.getBytes("UTF-8"));
+                    fos.close();
+                } catch (Exception ignored) {
+                }
+                if (previous != null) {
+                    previous.uncaughtException(t, e);
+                }
+            }
+        });
+
         registerPlugin(ApkUpdaterPlugin.class);
         super.onCreate(savedInstanceState);
 

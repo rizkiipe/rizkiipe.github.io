@@ -1,6 +1,8 @@
 package com.utrack.app;
 
+import android.app.Activity;
 import android.app.DownloadManager;
+import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
 import android.database.Cursor;
@@ -12,6 +14,11 @@ import android.provider.Settings;
 import android.view.View;
 import android.content.res.Resources;
 
+import androidx.activity.result.ActivityResult;
+import androidx.activity.result.ActivityResultCallback;
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.IntentSenderRequest;
+import androidx.activity.result.contract.ActivityResultContracts;
 import androidx.biometric.BiometricManager;
 import androidx.biometric.BiometricPrompt;
 import androidx.core.content.ContextCompat;
@@ -26,8 +33,17 @@ import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
+import com.google.android.gms.auth.api.identity.AuthorizationRequest;
+import com.google.android.gms.auth.api.identity.AuthorizationResult;
+import com.google.android.gms.auth.api.identity.Identity;
+import com.google.android.gms.common.api.ApiException;
+import com.google.android.gms.common.api.CommonStatusCodes;
+import com.google.android.gms.common.api.Scope;
 
 import java.io.File;
+import java.io.FileInputStream;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.Executor;
 
 /**
@@ -119,6 +135,128 @@ public class ApkUpdaterPlugin extends Plugin {
                 }
             }
         });
+    }
+
+    // ---------- Login Google native (tanpa tab Chrome) ----------
+    private ActivityResultLauncher<IntentSenderRequest> authLauncher;
+    private PluginCall authCall;
+
+    @Override
+    public void load() {
+        try {
+            authLauncher = getActivity().registerForActivityResult(
+                    new ActivityResultContracts.StartIntentSenderForResult(),
+                    new ActivityResultCallback<ActivityResult>() {
+                        @Override
+                        public void onActivityResult(ActivityResult result) {
+                            PluginCall c = authCall;
+                            authCall = null;
+                            if (c == null) {
+                                return;
+                            }
+                            if (result.getResultCode() != Activity.RESULT_OK || result.getData() == null) {
+                                c.reject("DIBATALKAN");
+                                return;
+                            }
+                            try {
+                                AuthorizationResult ar = Identity.getAuthorizationClient(getActivity())
+                                        .getAuthorizationResultFromIntent(result.getData());
+                                resolveAuth(c, ar);
+                            } catch (Exception e) {
+                                c.reject(describe(e));
+                            }
+                        }
+                    });
+        } catch (Exception ignored) {
+        }
+    }
+
+    private String describe(Exception e) {
+        if (e instanceof ApiException) {
+            int code = ((ApiException) e).getStatusCode();
+            if (code == CommonStatusCodes.CANCELED) {
+                return "DIBATALKAN";
+            }
+            return "KODE " + code + ": " + e.getMessage();
+        }
+        return String.valueOf(e.getMessage());
+    }
+
+    private void resolveAuth(PluginCall call, AuthorizationResult ar) {
+        String token = ar.getAccessToken();
+        if (token == null) {
+            call.reject("Token Google kosong");
+            return;
+        }
+        JSObject o = new JSObject();
+        o.put("accessToken", token);
+        call.resolve(o);
+    }
+
+    @PluginMethod
+    public void googleAuthorize(final PluginCall call) {
+        String scopesStr = call.getString("scopes", "");
+        List<Scope> scopes = new ArrayList<Scope>();
+        for (String sc : scopesStr.split("\\s+")) {
+            if (!sc.isEmpty()) {
+                scopes.add(new Scope(sc));
+            }
+        }
+        if (scopes.isEmpty()) {
+            call.reject("Scope kosong");
+            return;
+        }
+        if (authLauncher == null) {
+            call.reject("KODE 0: peluncur login belum siap");
+            return;
+        }
+        AuthorizationRequest request = AuthorizationRequest.builder().setRequestedScopes(scopes).build();
+        Identity.getAuthorizationClient(getActivity()).authorize(request)
+                .addOnSuccessListener(ar -> {
+                    if (ar.hasResolution()) {
+                        PendingIntent pi = ar.getPendingIntent();
+                        if (pi == null) {
+                            call.reject("KODE 0: izin butuh tampilan tetapi tidak tersedia");
+                            return;
+                        }
+                        authCall = call;
+                        try {
+                            authLauncher.launch(new IntentSenderRequest.Builder(pi.getIntentSender()).build());
+                        } catch (Exception e) {
+                            authCall = null;
+                            call.reject(describe(e));
+                        }
+                    } else {
+                        resolveAuth(call, ar);
+                    }
+                })
+                .addOnFailureListener(e -> call.reject(describe(e)));
+    }
+
+    // ---------- Catatan crash aplikasi sebelumnya ----------
+    @PluginMethod
+    public void readCrash(PluginCall call) {
+        JSObject o = new JSObject();
+        try {
+            File f = new File(getContext().getFilesDir(), "last_crash.txt");
+            if (f.exists()) {
+                byte[] buf = new byte[(int) f.length()];
+                FileInputStream in = new FileInputStream(f);
+                int off = 0;
+                while (off < buf.length) {
+                    int n = in.read(buf, off, buf.length - off);
+                    if (n < 0) {
+                        break;
+                    }
+                    off += n;
+                }
+                in.close();
+                o.put("text", new String(buf, 0, off, "UTF-8"));
+                f.delete();
+            }
+        } catch (Exception ignored) {
+        }
+        call.resolve(o);
     }
 
     @PluginMethod
