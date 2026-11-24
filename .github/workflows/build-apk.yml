@@ -22,6 +22,7 @@ permissions:
 env:
   WEB_HOST: laporan-de-uht-62ebd.web.app
   FIREBASE_PROJECT: laporan-de-uht-62ebd
+  FIREBASE_APP_ID: ${{ secrets.FIREBASE_APP_ID }}
 
 jobs:
   build:
@@ -109,10 +110,16 @@ jobs:
 
       - name: Ringkasan
         run: |
-          FP=$(keytool -list -v -keystore release.jks -alias utrack -storepass "$KS_PASS" | grep 'SHA256:' | head -1 | sed 's/.*SHA256: *//')
+          KT=$(keytool -list -v -keystore release.jks -alias utrack -storepass "$KS_PASS")
+          FP1=$(echo "$KT" | grep 'SHA1:' | head -1 | sed 's/.*SHA1: *//')
+          FP=$(echo "$KT" | grep 'SHA256:' | head -1 | sed 's/.*SHA256: *//')
           {
             echo "## U-Track v$VERSION"
-            echo "SHA-256 sertifikat (untuk Android OAuth client, bila dibutuhkan):"
+            echo "SHA-1 sertifikat (isi di Android OAuth client, Google Cloud Console):"
+            echo '```'
+            echo "$FP1"
+            echo '```'
+            echo "SHA-256 sertifikat:"
             echo '```'
             echo "$FP"
             echo '```'
@@ -155,6 +162,18 @@ jobs:
           firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
           projectId: ${{ env.FIREBASE_PROJECT }}
           channelId: live
+
+      # Kirim APK ke Firebase App Distribution (opsional: hanya jika secret FIREBASE_APP_ID diisi)
+      - name: Distribusi ke Firebase App Distribution
+        if: env.NEW_KEY == 'false' && env.FIREBASE_APP_ID != ''
+        continue-on-error: true
+        uses: wzieba/Firebase-Distribution-Github-Action@v1
+        with:
+          appId: ${{ env.FIREBASE_APP_ID }}
+          serviceCredentialsFileContent: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          groups: ${{ vars.FIREBASE_DIST_GROUPS || 'tim' }}
+          file: out/U-Track.apk
+          releaseNotes: ${{ inputs.notes }}
 
       # Simpan nomor versi ke repo supaya sumber di GitHub ikut sama dengan APK dan situs
       - name: Simpan nomor versi ke repo
