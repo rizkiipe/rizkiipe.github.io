@@ -6,6 +6,7 @@ on:
   pull_request:
     paths:
       - 'package.json'
+      - 'package-lock.json'
       - 'capacitor.config.json'
       - 'www/**'
       - 'android-overlay/**'
@@ -33,7 +34,7 @@ jobs:
           VCODE: '1'
         run: |
           rm -rf android
-          npm install
+          if [ -f package-lock.json ]; then npm ci; else npm install; fi
           npx cap add android
           python3 scripts/patch-android.py
           npx cap sync android
