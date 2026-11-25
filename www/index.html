@@ -9195,15 +9195,29 @@ function blobToB64(blob){
 async function shareWA(text, files){
   files = files || [];
   if(IS_NATIVE){
+    const uris = [];
     try{
       const paths = [];
       for(const f of files){
         const w = await capP('Filesystem').writeFile({ path: 'export/' + String(f.name).replace(/[^\w.\- ]+/g, '_'), data: await blobToB64(f.blob), directory: 'CACHE', recursive: true });
+        uris.push(w.uri);
         paths.push(String(w.uri).replace(/^file:\/\//, ''));
       }
       await capP('ApkUpdater').shareWhatsApp({ text: text || '', paths: paths });
     }catch(e){
-      showStatus('✕ ' + String((e && e.message) || e).replace(/^Error: /, ''), 'error');
+      const m = String((e && e.message) || e);
+      if(/tidak terpasang/i.test(m)){ showStatus('✕ WhatsApp tidak terpasang di HP ini', 'error'); return; }
+      // Cadangan: APK lama belum punya fitur kirim langsung -> pakai menu bagikan Android (pilih WhatsApp)
+      console.error('shareWhatsApp native gagal, pakai menu bagikan:', m);
+      try{
+        const a = { dialogTitle: 'Kirim ke WhatsApp' };
+        if(text) a.text = text;
+        if(uris.length) a.files = uris;
+        await capP('Share').share(a);
+      }catch(e2){
+        const m2 = String((e2 && e2.message) || e2);
+        if(!/cancel|dismiss/i.test(m2)) showStatus('✕ Gagal membagikan: ' + m2, 'error');
+      }
     }
     return;
   }
@@ -9293,7 +9307,7 @@ Object.assign(window, {
 <div id="appVersion" style="text-align:center;font:500 11px 'IBM Plex Mono',monospace;color:var(--muted);opacity:.75;padding:14px 0 4px"></div>
 <script>
 /* APP_VERSION diisi otomatis oleh workflow rilis (jangan diubah manual). */
-var APP_VERSION = '1.4.0';
+var APP_VERSION = '1.0.0';
 (function(){
   var el = document.getElementById('appVersion');
   if(el) el.textContent = 'U-Track v' + APP_VERSION + (window.IS_NATIVE ? '' : ' · Web');

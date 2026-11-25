@@ -3,6 +3,7 @@ package com.utrack.app;
 import android.app.Activity;
 import android.app.DownloadManager;
 import android.app.PendingIntent;
+import android.content.ActivityNotFoundException;
 import android.content.Context;
 import android.content.Intent;
 import android.database.Cursor;
@@ -28,6 +29,7 @@ import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 
+import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
@@ -257,6 +259,54 @@ public class ApkUpdaterPlugin extends Plugin {
         } catch (Exception ignored) {
         }
         call.resolve(o);
+    }
+
+    // ---------- Kirim ke WhatsApp (teks dan/atau gambar) ----------
+    @PluginMethod
+    public void shareWhatsApp(PluginCall call) {
+        String text = call.getString("text", "");
+        JSArray arr = call.getArray("paths", new JSArray());
+        Context ctx = getContext();
+        ArrayList<Uri> uris = new ArrayList<Uri>();
+        try {
+            for (int k = 0; k < arr.length(); k++) {
+                File f = new File(arr.getString(k));
+                uris.add(FileProvider.getUriForFile(ctx, ctx.getPackageName() + ".fileprovider", f));
+            }
+        } catch (Exception e) {
+            call.reject("Berkas tidak valid: " + e.getMessage());
+            return;
+        }
+        Intent base;
+        if (uris.size() > 1) {
+            base = new Intent(Intent.ACTION_SEND_MULTIPLE);
+            base.setType("image/*");
+            base.putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris);
+        } else if (uris.size() == 1) {
+            base = new Intent(Intent.ACTION_SEND);
+            base.setType("image/*");
+            base.putExtra(Intent.EXTRA_STREAM, uris.get(0));
+        } else {
+            base = new Intent(Intent.ACTION_SEND);
+            base.setType("text/plain");
+        }
+        if (text != null && !text.isEmpty()) {
+            base.putExtra(Intent.EXTRA_TEXT, text);
+        }
+        base.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        String[] pkgs = new String[]{"com.whatsapp", "com.whatsapp.w4b"};
+        for (String pkg : pkgs) {
+            try {
+                Intent i = new Intent(base);
+                i.setPackage(pkg);
+                i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                ctx.startActivity(i);
+                call.resolve();
+                return;
+            } catch (ActivityNotFoundException ignored) {
+            }
+        }
+        call.reject("WhatsApp tidak terpasang di HP ini");
     }
 
     @PluginMethod
