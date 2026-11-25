@@ -617,7 +617,7 @@ html.is-native .pbtn:active,html.is-native .btn-secondary:active,html.is-native 
     </div>
     <div class="de-card"><div class="card-h">📝 Preview Teks</div>
       <div id="outputText"></div>
-      <div class="modal-actions"><button class="btn-secondary" onclick="copyReport()">📋 Salin Teks</button><button class="btn-primary" onclick="downloadTxt()">⬇ Unduh .txt</button></div>
+      <div class="modal-actions"><button class="btn-secondary" onclick="copyReport()">📋 Salin Teks</button><button class="btn-secondary" onclick="shareTextWA()">🟢 WhatsApp</button><button class="btn-primary" onclick="downloadTxt()">⬇ Unduh .txt</button></div>
       <div style="padding:10px 16px 0;border-top:1px solid var(--line);font:600 11px 'IBM Plex Mono',monospace;letter-spacing:.1em;color:var(--muted)">SALIN PER KELOMPOK DE</div>
       <div class="modal-actions" id="rgBtns" style="border-top:0;padding-top:8px">
         <button class="btn-secondary" data-g="1" onclick="copyReportGroup(1,this)">📋 DE 1 <span class="rg-n"></span></button>
@@ -674,6 +674,7 @@ html.is-native .pbtn:active,html.is-native .btn-secondary:active,html.is-native 
     <div class="modal-actions">
       <button class="btn-secondary" onclick="copyImage()" id="btnCopyImg">📋 Salin Gambar</button>
       <button class="btn-secondary" onclick="downloadInteractive()" title="File HTML: foto bisa diklik untuk zoom">⬇ Unduh .html (foto bisa di-zoom)</button>
+      <button class="btn-primary" onclick="shareImageWA()" id="btnWaImg">🟢 Kirim ke WhatsApp</button>
       <button class="btn-primary" onclick="downloadImage()" id="btnDlPng">⬇ Unduh .png</button>
       <button class="btn-primary" onclick="downloadBothImages()" id="btnDlBoth" style="display:none">⬇ Unduh keduanya (2 .png)</button>
     </div></div>
@@ -1113,7 +1114,7 @@ function passwordAuth(msg){
 async function authorizeOverwrite(what){
   // Bila dinyalakan di Pengaturan (APK): hanya sidik jari / wajah, tanpa password
   if(typeof bioOverwriteEnabled === 'function' && bioOverwriteEnabled() && await bioAvailable()){
-    const ok = await bioAuth('Timpa laporan', String(what || '').split('\n')[0].slice(0, 120));
+    const ok = await bioAuth('Timpa laporan', String(what || '').split('\n')[0].slice(0, 170));
     return ok ? true : null;   // null = dibatalkan -> upload dibatalkan
   }
   const pwMsg = `${what}\nMasukkan password untuk MENIMPA (batalkan untuk membatalkan upload):`;
@@ -2209,9 +2210,11 @@ async function saveReworkToDrive(){
     }
     await uploadFileToDrive(REWORK_FILE_NAME, 'application/json; charset=UTF-8', JSON.stringify({ items: merged, updatedAt: new Date().toISOString() }, null, 2), folderId);
     showStatus('✓ Rework Tracker tersimpan di Drive', 'success');
+    pendClear('rw'); rwMarkSynced();
   }catch(err){
     console.error(err);
-    showStatus('✕ Gagal menyimpan Rework Tracker: ' + (err.message || 'unknown error'), 'error');
+    if(isNetErr(err)){ rwDraftSave(); pendMark('rw'); showStatus('📴 Tidak ada koneksi — Rework Tracker disimpan di HP dan dikirim otomatis saat online', 'info'); }
+    else{ pendClear('rw'); showStatus('✕ Gagal menyimpan Rework Tracker: ' + (err.message || 'unknown error'), 'error'); }
   }
 }
 
@@ -2377,6 +2380,7 @@ async function loadReworkFromDrive(){
     const res = await driveFetch(`https://www.googleapis.com/drive/v3/files/${existingId}?alt=media`);
     const data = await res.json();
     reworkEntries = data.items || [];
+    rwMarkSynced();
     renderRework();
     showStatus('✓ Rework Tracker dimuat dari Drive', 'success');
   }catch(err){
@@ -2962,7 +2966,8 @@ function collectData(){
       info: document.getElementById('meta-info').value,
     },
     deEntries,
-    updatedAt: new Date().toISOString()
+    updatedAt: new Date().toISOString(),
+    updatedBy: whoAmI()
   };
 }
 
@@ -3033,7 +3038,16 @@ async function uploadToDrive(){
 
       if(conflicts.length){
         const uniqueConflicts = [...new Set(conflicts)];
-        const ok = await authorizeOverwrite(`DE ${uniqueConflicts.join(', ')} sudah pernah dilaporkan untuk tanggal/shift/group ini.`);
+        let lastBy = '';
+        try{
+          const mr = await driveFetch(`https://www.googleapis.com/drive/v3/files/${existingId}?fields=modifiedTime,lastModifyingUser(displayName,emailAddress)`);
+          if(mr.ok){
+            const m = await mr.json(), u = m.lastModifyingUser || {};
+            const nm = u.displayName || u.emailAddress || existingData.updatedBy || '';
+            if(nm) lastBy = ' Terakhir disimpan oleh ' + nm + ' pada ' + new Date(m.modifiedTime).toLocaleString('id-ID') + '.';
+          }
+        }catch(e){}
+        const ok = await authorizeOverwrite(`DE ${uniqueConflicts.join(', ')} sudah pernah dilaporkan untuk tanggal/shift/group ini.${lastBy}`);
         if(ok === null){
           showStatus('Upload dibatalkan.', 'info');
           return;
@@ -3065,6 +3079,7 @@ async function uploadToDrive(){
 
     showStatus('✓ Tersimpan di Drive folder "' + DRIVE_FOLDER_NAME + '"', 'success');
     pendingClear(); draftClear();
+    try{ recordSaved(collectData().meta.shift); }catch(e){}
   }catch(err){
     console.error(err);
     if(isNetErr(err)){
@@ -3117,10 +3132,11 @@ async function openHistory(){
       const row = document.createElement('div');
       row.className = 'hist-row';
       const when = new Date(f.modifiedTime).toLocaleString('id-ID');
+      const who = (f.lastModifyingUser && (f.lastModifyingUser.displayName || f.lastModifyingUser.emailAddress)) ? ' · oleh ' + escHtml(f.lastModifyingUser.displayName || f.lastModifyingUser.emailAddress) : '';
       row.innerHTML = `
         <div class="hist-main" role="button" tabindex="0">
           <span class="hist-id">${f.name}</span>
-          <span class="hist-sub">${when}${f.mimeType==='application/json' ? ' · klik untuk muat ke form' : ' · klik untuk buka'}</span>
+          <span class="hist-sub">${when}${who}${f.mimeType==='application/json' ? ' · klik untuk muat ke form' : ' · klik untuk buka'}</span>
         </div>
         <label class="hist-select"><input class="hist-select-input" type="checkbox">Tandai</label>
         <button class="hist-delete" type="button">Hapus</button>`;
@@ -3170,7 +3186,7 @@ async function getHistoryFiles(){
   do{
     const q = encodeURIComponent(`'${folderId}' in parents and trashed=false`);
     const page = pageToken ? `&pageToken=${encodeURIComponent(pageToken)}` : '';
-    const res = await driveFetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=modifiedTime desc&fields=nextPageToken,files(id,name,mimeType,modifiedTime,webViewLink)&pageSize=1000${page}`);
+    const res = await driveFetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=modifiedTime desc&fields=nextPageToken,files(id,name,mimeType,modifiedTime,webViewLink,lastModifyingUser(displayName,emailAddress))&pageSize=1000${page}`);
     if(!res.ok) throw new Error('Tidak dapat memuat Riwayat');
     const data = await res.json();
     files.push(...(data.files || []));
@@ -6225,7 +6241,7 @@ async function doLogin(){
   try{ ok = (await _authHash(u, pw)) === AUTH_HASH; }
   catch(e){ err.textContent = 'Login butuh koneksi aman (HTTPS)'; return; }
   if(ok){
-    try{ localStorage.setItem('utrack_auth', '1'); }catch(e){}
+    try{ localStorage.setItem('utrack_auth', '1'); localStorage.setItem('utrack_who', u); }catch(e){}
     showLogin(false);
     try{ afterLogin(); }catch(e){}
   }else{
@@ -6260,7 +6276,7 @@ async function doGoogleLogin(){
       err.textContent = 'Akun ' + email + ' tidak diizinkan. Pakai akun Google lain.';
       return;
     }
-    try{ localStorage.setItem('utrack_auth', '1'); localStorage.setItem('utrack_user', email); }catch(e){}
+    try{ localStorage.setItem('utrack_auth', '1'); localStorage.setItem('utrack_user', email); localStorage.setItem('utrack_who', email); }catch(e){}
     showLogin(false);
     try{ afterLogin(); }catch(e){}
     setTimeout(() => { try{ pendingFlush(); }catch(e){} }, 1500);
@@ -7496,9 +7512,11 @@ async function pmSaveDrive(){
     await uploadFileToDrive(name, 'application/json; charset=UTF-8', JSON.stringify({ meta: { tanggal: PM.d.tgl, shift: PM.d.shift, group: PM.d.grp }, pm: PM, log: PMLOG[key] || null, updatedAt: new Date().toISOString() }, null, 2), folderId);
     pmSessionSaved.add(key);
     showStatus(`✓ Tersimpan di Drive folder "${PM_FOLDER_NAME}"`, 'success');
+    pendClear('pm');
   }catch(err){
     console.error(err);
-    showStatus('✕ Gagal upload: ' + (err.message || 'unknown error'), 'error');
+    if(isNetErr(err)){ pmSave(); pendMark('pm'); showStatus('📴 Tidak ada koneksi — laporan Proses disimpan di HP dan dikirim otomatis saat online', 'info'); }
+    else{ pendClear('pm'); showStatus('✕ Gagal upload: ' + (err.message || 'unknown error'), 'error'); }
   }finally{ if(b){ b.disabled = false; b.classList.remove('busy'); } }
 }
 async function pmOpenHist(){
@@ -8575,6 +8593,7 @@ async function effGenImage(silent){
       <div class="row2" style="margin-top:10px;">
         <button class="btn-primary" style="border-radius:10px;padding:12px;cursor:pointer;" onclick="effDownloadImage()">⬇ Unduh .png</button>
         <button class="btn-secondary" style="border-radius:10px;padding:12px;cursor:pointer;" onclick="effCopyImage(this)">📋 Salin Gambar</button>
+        <button class="btn-primary" style="border-radius:10px;padding:12px;cursor:pointer;" onclick="effShareWA()">🟢 Kirim ke WhatsApp</button>
       </div>
       <div style="font-size:11px;color:var(--muted);margin-top:8px;">Resolusi tinggi (${effImgDim[0]}×${effImgDim[1]} px). Gambar ikut diperbarui otomatis kalau tanggal / shift / urutan diubah.</div>
       <div style="font-size:11px;color:var(--cyan);margin-top:6px;">💡 Biar HD di WhatsApp: Unduh dulu, lalu kirim lewat <b>📎 → Dokumen</b> (bukan Galeri/Foto) — WA tidak mengompres file dokumen.</div>
@@ -8879,20 +8898,26 @@ if(IS_NATIVE){ try{ initNativeShell(); }catch(e){ console.error('initNativeShell
 /* --- Draf otomatis + antrean offline (semua platform) --- */
 const DRAFT_KEY = 'utrack_draft_de', PENDING_KEY = 'utrack_pending_save';
 let _draftLast = '';
-function draftSnapshot(){
+function draftSnapshot(withPhoto){
   const d = collectData(); delete d.updatedAt;
-  d.deEntries = (d.deEntries || []).map(e => { const c = Object.assign({}, e); delete c.photo; return c; });   // foto tidak ikut draf (terlalu besar)
+  d.deEntries = (d.deEntries || []).map(e => { const c = Object.assign({}, e); if(!withPhoto) delete c.photo; return c; });
   return d;
 }
 function draftSave(){
   try{
-    const snap = draftSnapshot();
+    let snap = draftSnapshot(true);
     const has = snap.deEntries.some(e => String(e.deNumber || '').trim()) || String(snap.meta.pengawas || '').trim() || String(snap.meta.info || '').trim();
     if(!has) return;
-    const j = JSON.stringify(snap);
+    let j = JSON.stringify(snap);
+    if(j.length > 3500000){ snap = draftSnapshot(false); j = JSON.stringify(snap); }   // terlalu besar: foto tidak ikut draf
     if(j === _draftLast) return;
+    try{
+      localStorage.setItem(DRAFT_KEY, JSON.stringify({ at: Date.now(), data: snap }));
+    }catch(qe){
+      snap = draftSnapshot(false); j = JSON.stringify(snap);   // kuota penuh: simpan tanpa foto
+      localStorage.setItem(DRAFT_KEY, JSON.stringify({ at: Date.now(), data: snap }));
+    }
     _draftLast = j;
-    localStorage.setItem(DRAFT_KEY, JSON.stringify({ at: Date.now(), data: snap }));
   }catch(e){}
 }
 function draftClear(){ try{ localStorage.removeItem(DRAFT_KEY); }catch(e){} _draftLast = ''; }
@@ -8907,29 +8932,65 @@ function draftRestoreIfEmpty(){
     showStatus('↺ Draf dipulihkan (' + Math.max(1, Math.round((Date.now() - o.at) / 60000)) + ' menit lalu)', 'info');
   }catch(e){ console.error('draft', e); }
 }
-function pendingGet(){ try{ return JSON.parse(localStorage.getItem(PENDING_KEY) || 'null'); }catch(e){ return null; } }
-function pendingExists(){ return !!pendingGet(); }
-function pendingMark(){ draftSave(); if(!pendingGet()){ try{ localStorage.setItem(PENDING_KEY, JSON.stringify({ at: Date.now(), tries: 0 })); }catch(e){} } }
-function pendingClear(){ try{ localStorage.removeItem(PENDING_KEY); }catch(e){} }
+/* Antrean offline per halaman: de = Filling-DE, pm = Proses, rw = Rework Tracker */
+const PEND_KEY = 'utrack_pending_jobs';
+const PEND_LABEL = { de: 'laporan Filling-DE', pm: 'laporan Proses', rw: 'Rework Tracker' };
+function pendAll(){ try{ return JSON.parse(localStorage.getItem(PEND_KEY) || '{}') || {}; }catch(e){ return {}; } }
+function pendWrite(o){ try{ localStorage.setItem(PEND_KEY, JSON.stringify(o)); }catch(e){} }
+function pendExists(job){ const a = pendAll(); return job ? !!a[job] : Object.keys(a).length > 0; }
+function pendMark(job){ const a = pendAll(); if(!a[job]){ a[job] = { at: Date.now(), tries: 0 }; pendWrite(a); } }
+function pendClear(job){ const a = pendAll(); if(a[job]){ delete a[job]; pendWrite(a); } }
+// nama lama (laporan DE) tetap dipakai kode yang sudah ada
+function pendingExists(){ return pendExists(); }
+function pendingMark(){ draftSave(); pendMark('de'); }
+function pendingClear(){ pendClear('de'); }
 function isNetErr(err){
   const m = String((err && err.message) || err || '');
   return !navigator.onLine || (err instanceof TypeError) || /failed to fetch|network|load failed|timeout/i.test(m);
 }
+const PEND_RUN = { de: () => fabSaveDrive(), pm: () => pmSaveDrive(), rw: () => saveReworkToDrive() };
 let _flushing = false;
 async function pendingFlush(){
-  const p = pendingGet();
-  if(!p || _flushing || !navigator.onLine || document.hidden) return;
+  if(_flushing || !navigator.onLine || document.hidden) return;
   if(document.getElementById('loginScreen').classList.contains('show')) return;
-  if((p.tries || 0) >= 3){ pendingClear(); showStatus('Laporan tertunda belum terkirim — tekan Save untuk mencoba lagi', 'error'); return; }
-  p.tries = (p.tries || 0) + 1;
-  try{ localStorage.setItem(PENDING_KEY, JSON.stringify(p)); }catch(e){}
-  _flushing = true;
-  try{ showStatus('Mengirim laporan yang tertunda…', 'info'); await fabSaveDrive(); }
-  finally{ _flushing = false; }
+  for(const job of Object.keys(pendAll())){
+    const all = pendAll(), p = all[job];
+    if(!p) continue;
+    if(!PEND_RUN[job]){ pendClear(job); continue; }
+    if((p.tries || 0) >= 3){ pendClear(job); showStatus('⚠ ' + (PEND_LABEL[job] || job) + ' tertunda belum terkirim — simpan ulang manual', 'error'); continue; }
+    p.tries = (p.tries || 0) + 1; all[job] = p; pendWrite(all);
+    _flushing = true;
+    try{ showStatus('Mengirim ' + (PEND_LABEL[job] || job) + ' yang tertunda…', 'info'); await PEND_RUN[job](); }
+    finally{ _flushing = false; }
+  }
+}
+// pindahkan antrean format lama (versi sebelum 1.4.0)
+try{ if(localStorage.getItem('utrack_pending_save')){ pendMark('de'); localStorage.removeItem('utrack_pending_save'); } }catch(e){}
+
+/* Draf Rework Tracker: tersimpan selama ada perubahan yang belum masuk Drive */
+const RW_DRAFT_KEY = 'utrack_rework_draft';
+let _rwSynced = '[]';
+function rwMarkSynced(){ try{ _rwSynced = JSON.stringify(reworkEntries); localStorage.removeItem(RW_DRAFT_KEY); }catch(e){} }
+function rwDraftSave(){
+  try{
+    if(JSON.stringify(reworkEntries) === _rwSynced){ localStorage.removeItem(RW_DRAFT_KEY); return; }
+    localStorage.setItem(RW_DRAFT_KEY, JSON.stringify({ at: Date.now(), items: reworkEntries }));
+  }catch(e){}
+}
+function rwDraftRestore(){
+  try{
+    const o = JSON.parse(localStorage.getItem(RW_DRAFT_KEY) || 'null');
+    if(!o || !Array.isArray(o.items) || !o.items.length || Date.now() - o.at > 24 * 3600 * 1000) return;
+    if(reworkEntries.length) return;
+    reworkEntries = o.items; renderRework();
+    showStatus('↺ Draf Rework dipulihkan', 'info');
+  }catch(e){}
 }
 setInterval(draftSave, 4000);
-document.addEventListener('visibilitychange', () => { if(document.hidden) draftSave(); else setTimeout(pendingFlush, 1500); });
-window.addEventListener('pagehide', draftSave);
+setInterval(rwDraftSave, 5000);
+setTimeout(rwDraftRestore, 1200);
+document.addEventListener('visibilitychange', () => { if(document.hidden){ draftSave(); rwDraftSave(); } else setTimeout(pendingFlush, 1500); });
+window.addEventListener('pagehide', () => { draftSave(); rwDraftSave(); });
 window.addEventListener('online', () => setTimeout(pendingFlush, 1500));
 setTimeout(draftRestoreIfEmpty, 800);
 setTimeout(pendingFlush, 3500);
@@ -8984,9 +9045,25 @@ function remGet(){
   return { on: false, times: ['13:30', '21:30', '05:30'] };
 }
 function remSet(o){ try{ localStorage.setItem(REM_KEY, JSON.stringify(o)); }catch(e){} }
+const REM_DAYS = 4;
+function remSaves(){ try{ return JSON.parse(localStorage.getItem('utrack_saves') || '[]'); }catch(e){ return []; } }
+function recordSaved(shift){
+  if(!shift) return;
+  const a = remSaves().filter(x => Date.now() - x.at < 3 * 86400000);
+  a.push({ s: String(shift), at: Date.now() });
+  try{ localStorage.setItem('utrack_saves', JSON.stringify(a.slice(-30))); }catch(e){}
+  if(IS_NATIVE) remApply(false).catch(() => {});   // laporan sudah tersimpan -> batalkan pengingat shift itu
+}
+// laporan shift ke-i dianggap sudah tersimpan bila ada penyimpanan shift itu dalam 9 jam sebelum jam pengingat
+function remSavedFor(i, fire){
+  const label = 'Shift ' + (i + 1), t = fire.getTime();
+  return remSaves().some(x => x.s === label && x.at <= t && x.at >= t - 9 * 3600 * 1000);
+}
 async function remApply(ask){
   const LN = capP('LocalNotifications'), o = remGet();
-  try{ await LN.cancel({ notifications: [{ id: 9001 }, { id: 9002 }, { id: 9003 }] }); }catch(e){}
+  const ids = [9001, 9002, 9003];   // jadwal berulang versi lama
+  for(let n = 9100; n < 9100 + 3 * REM_DAYS; n++) ids.push(n);
+  try{ await LN.cancel({ notifications: ids.map(id => ({ id: id })) }); }catch(e){}
   if(!o.on) return true;
   let perm = await LN.checkPermissions();
   if(perm.display !== 'granted'){
@@ -8994,11 +9071,21 @@ async function remApply(ask){
     perm = await LN.requestPermissions();
     if(perm.display !== 'granted'){ showStatus('✕ Izin notifikasi ditolak — aktifkan di pengaturan HP', 'error'); return false; }
   }
-  const notifications = o.times.slice(0, 3).map((t, i) => {
-    const p = String(t).split(':'), hh = parseInt(p[0], 10) || 0, mm = parseInt(p[1], 10) || 0;
-    return { id: 9001 + i, title: 'U-Track', body: 'Waktunya simpan Laporan Shift ' + (i + 1) + '. Buka U-Track lalu tekan Save.', schedule: { on: { hour: hh, minute: mm }, allowWhileIdle: true } };
-  });
-  await LN.schedule({ notifications: notifications });
+  const now = new Date(), items = [];
+  for(let d = 0; d < REM_DAYS; d++){
+    o.times.slice(0, 3).forEach((t, i) => {
+      const p = String(t).split(':');
+      const fire = new Date(now.getFullYear(), now.getMonth(), now.getDate() + d, parseInt(p[0], 10) || 0, parseInt(p[1], 10) || 0, 0, 0);
+      if(fire <= now || remSavedFor(i, fire)) return;
+      items.push({
+        id: 9100 + d * 3 + i, title: 'U-Track',
+        body: 'Laporan Shift ' + (i + 1) + ' belum tersimpan. Buka U-Track lalu tekan Save.',
+        schedule: { at: fire.toISOString(), allowWhileIdle: true },
+        smallIcon: 'ic_stat_utrack', iconColor: '#33D8C9', largeIcon: 'ic_notif_large'
+      });
+    });
+  }
+  if(items.length) await LN.schedule({ notifications: items });
   return true;
 }
 
@@ -9014,7 +9101,7 @@ async function openSettings(){
         ? '<label style="' + ROW + '"><span>Kunci app dengan sidik jari / wajah<br><small style="color:var(--muted)">Diminta saat app dibuka dan setelah ditinggal 5 menit</small></span><input type="checkbox" id="setBio" ' + (bioEnabled() ? 'checked' : '') + ' style="width:22px;height:22px;accent-color:#33D8C9"></label>'
           + '<label style="' + ROW + '"><span>Timpa laporan dengan sidik jari / wajah<br><small style="color:var(--muted)">Tanpa password saat laporan yang sama sudah ada</small></span><input type="checkbox" id="setBioOw" ' + (bioOverwriteEnabled() ? 'checked' : '') + ' style="width:22px;height:22px;accent-color:#33D8C9"></label>'
         : '<div style="' + ROW + ';color:var(--muted);font-size:13px">Sidik jari / wajah tidak tersedia di HP ini</div>')
-    + '<label style="' + ROW + '"><span>Pengingat simpan laporan</span><input type="checkbox" id="setRem" ' + (rem.on ? 'checked' : '') + ' style="width:22px;height:22px;accent-color:#33D8C9"></label>'
+    + '<label style="' + ROW + '"><span>Pengingat simpan laporan<br><small style="color:var(--muted)">Hanya berbunyi bila laporan shift itu belum tersimpan</small></span><input type="checkbox" id="setRem" ' + (rem.on ? 'checked' : '') + ' style="width:22px;height:22px;accent-color:#33D8C9"></label>'
     + '<div id="remBox" style="display:' + (rem.on ? 'block' : 'none') + '">'
     + time(0, 'Shift 1 — ingatkan pukul') + time(1, 'Shift 2 — ingatkan pukul') + time(2, 'Shift 3 — ingatkan pukul') + '</div>'
     + '<div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:16px"><button id="setUpd" class="pbtn btn-secondary" style="flex:1 1 40%;border:1px solid var(--line)">Cek update</button><button id="setLog" class="pbtn btn-secondary" style="flex:1 1 40%;border:1px solid var(--line)">Log error</button><button id="setClose" class="pbtn btn-primary" style="flex:1 1 100%">Tutup</button></div>');
@@ -9082,6 +9169,7 @@ function initExtras(){
     let authed = false; try{ authed = localStorage.getItem('utrack_auth') === '1'; }catch(e){}
     if(authed && bioEnabled() && hiddenAt && Date.now() - hiddenAt > 5 * 60 * 1000) showLogin(true);
     else setTimeout(pendingFlush, 1500);
+    setTimeout(() => { remApply(false).catch(() => {}); }, 2000);
     hiddenAt = 0;
   });
   setTimeout(() => { remApply(false).catch(() => {}); }, 4000);
@@ -9097,6 +9185,52 @@ try{ if(!localStorage.getItem('utrack_bio_mig2')){ localStorage.setItem(BIO_KEY,
 // Kunci saat app dibuka dingin: minta sidik jari/wajah hanya bila diaktifkan
 if(IS_NATIVE){ let a = false; try{ a = localStorage.getItem('utrack_auth') === '1'; }catch(e){} if(a && bioEnabled()) showLogin(true); }
 
+/* ===================== FITUR 1.3 ===================== */
+function whoAmI(){ try{ return localStorage.getItem('utrack_who') || ''; }catch(e){ return ''; } }
+
+/* --- Kirim ke WhatsApp (teks / gambar) --- */
+function blobToB64(blob){
+  return new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(',')[1]); r.onerror = rej; r.readAsDataURL(blob); });
+}
+async function shareWA(text, files){
+  files = files || [];
+  if(IS_NATIVE){
+    try{
+      const paths = [];
+      for(const f of files){
+        const w = await capP('Filesystem').writeFile({ path: 'export/' + String(f.name).replace(/[^\w.\- ]+/g, '_'), data: await blobToB64(f.blob), directory: 'CACHE', recursive: true });
+        paths.push(String(w.uri).replace(/^file:\/\//, ''));
+      }
+      await capP('ApkUpdater').shareWhatsApp({ text: text || '', paths: paths });
+    }catch(e){
+      showStatus('✕ ' + String((e && e.message) || e).replace(/^Error: /, ''), 'error');
+    }
+    return;
+  }
+  try{
+    if(files.length && navigator.canShare){
+      const fl = files.map(f => new File([f.blob], f.name, { type: f.blob.type || 'image/png' }));
+      if(navigator.canShare({ files: fl })){ await navigator.share({ files: fl, text: text || '' }); return; }
+    }
+  }catch(e){ if(e && e.name === 'AbortError') return; }
+  if(text){ window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank'); }
+  else showStatus('Browser ini tidak bisa kirim gambar langsung — pakai Unduh .png lalu kirim lewat WhatsApp', 'info');
+}
+function shareTextWA(){ shareWA(document.getElementById('outputText').textContent, []); }
+function shareImageWA(){
+  const meta = collectData().meta;
+  const bothBtn = document.getElementById('btnDlBoth');
+  const keys = (bothBtn && bothBtn.style.display !== 'none') ? ['report', 'attach'] : [activeReportPart];
+  const files = keys.filter(k => reportParts[k] && reportParts[k].blob)
+    .map(k => ({ blob: reportParts[k].blob, name: (k === 'attach' ? 'Lampiran-DE-' : 'Report-DE-') + (meta.tanggal || '') + '.png' }));
+  if(!files.length){ showStatus('⚠ Gambar belum siap', 'error'); return; }
+  shareWA('', files);
+}
+function effShareWA(){
+  if(!effImgBlob) return;
+  shareWA('', [{ blob: effImgBlob, name: effImgName || 'Efisiensi.png' }]);
+}
+
 Object.assign(window, {
   addDE, addProductSeg, addAllDE, clearDEList, addDE1, addDE2, addDE3, removeDE, addProblem, removeProblem, updateField, updateDeNumber, updateProblem, setStatus,
   updateMachineType, updateProductType, updateRunType, updateBoxCode, updateBoxCode2, regenerateExpiryFromLDate, handleTanggalChange, handleShiftChange, handleGroupChange,
@@ -9104,7 +9238,7 @@ Object.assign(window, {
   generateReport, setReportLine, closeModal, copyReport, copyReportGroup, copyImageGroup, setImageGroup, downloadTxt, saveJSON, loadJSON, generateDeImage, closeImageModal, copyImage, downloadImage,
   uploadToDrive, fabSaveDrive, openHistory, openHistoryGuarded, closeHistory, loadFromDrive, deleteHistoryFile, deleteAllHistory, deleteSelectedHistory, shareSelectedHistory, importHistoryFiles,
   generateAndUploadWeeklyRecap, generateAndUploadMonthlyRecap, closeRecap, setRecapMode, showPeriodRecap, downloadPeriodRecapXlsx, toggleRecapMachine, clearRecapMachines, setRecapSort,
-  toggleSheetSync, sheetSyncOnce, showPage, showSub, doLogin, doGoogleLogin, pickCamera, bioLogin, installApp, generateLaporan, setLaporanLine, loadDash, resetAllData, doLogout,
+  toggleSheetSync, sheetSyncOnce, showPage, showSub, doLogin, doGoogleLogin, pickCamera, bioLogin, shareTextWA, shareImageWA, effShareWA, installApp, generateLaporan, setLaporanLine, loadDash, resetAllData, doLogout,
   effToggleResult, dspFind, dspCreateYear, dspSave, dspClear, dspGrpChange, dspShiftChange, dspDateChange,
   effLoad, effGrant, effPickMonth, effAuto, effSetRange, effPickShift, effSetSort, effQuick, effToggle, effGenImage, effDownloadImage, effCopyImage, openWaImport, closeWaImport, waReadPaste, waRunParse, waApply, openPbImport, closePbImport, runPbOcr, pbRowSet, pbRowSku, importPbRows,
   checkPalletHold, updateRework, updateReworkDe, removeRework, addReworkManual, saveReworkToDrive, loadReworkFromDrive,
@@ -9159,7 +9293,7 @@ Object.assign(window, {
 <div id="appVersion" style="text-align:center;font:500 11px 'IBM Plex Mono',monospace;color:var(--muted);opacity:.75;padding:14px 0 4px"></div>
 <script>
 /* APP_VERSION diisi otomatis oleh workflow rilis (jangan diubah manual). */
-var APP_VERSION = '1.2.2';
+var APP_VERSION = '1.0.0';
 (function(){
   var el = document.getElementById('appVersion');
   if(el) el.textContent = 'U-Track v' + APP_VERSION + (window.IS_NATIVE ? '' : ' · Web');

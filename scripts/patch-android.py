@@ -30,6 +30,13 @@ for d in ("mdpi", "hdpi", "xhdpi", "xxhdpi", "xxxhdpi"):
     for f in ("ic_launcher.png", "ic_launcher_round.png"):
         shutil.copy(os.path.join(OVER, "res", "mipmap-" + d, f), os.path.join(MAIN, "res", "mipmap-" + d, f))
 
+# 3b) Ikon notifikasi (huruf U putih + ikon besar berwarna)
+for d in glob.glob(os.path.join(OVER, "res", "drawable-*")):
+    target = os.path.join(MAIN, "res", os.path.basename(d))
+    os.makedirs(target, exist_ok=True)
+    for f in os.listdir(d):
+        shutil.copy(os.path.join(d, f), os.path.join(target, f))
+
 # 4) Splash screen gelap
 n = 0
 for p in glob.glob(os.path.join(MAIN, "res", "drawable*", "splash.png")):
@@ -46,6 +53,10 @@ perm = (
     '    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />\n'
     '    <uses-permission android:name="android.permission.CAMERA" />\n'
     '    <uses-feature android:name="android.hardware.camera" android:required="false" />\n'
+    '    <queries>\n'
+    '        <package android:name="com.whatsapp" />\n'
+    '        <package android:name="com.whatsapp.w4b" />\n'
+    '    </queries>\n'
 )
 intent = (
     '            <intent-filter>\n'

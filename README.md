@@ -72,6 +72,17 @@ Setiap rilis, APK otomatis dikirim ke grup itu. Langkah ini dilewati bila secret
 ## Perubahan 1.2.2
 - Semua kolom tanggal tampil **dd/mm/yyyy** (mis. 24/11/2026) di semua perangkat; isi data tetap yyyy-mm-dd sehingga file Drive tidak berubah.
 
+## Fitur 1.3
+- **Jejak audit**: tiap laporan mencatat siapa yang menyimpan (email Google / nama login). Riwayat Laporan menampilkan "oleh ..." dari data Google Drive, dan peringatan sebelum menimpa laporan yang sudah ada menyebut siapa dan kapan terakhir menyimpan.
+- **Kirim ke WhatsApp**: tombol langsung di teks laporan, gambar laporan, dan gambar efisiensi (membuka pilihan kontak/grup WhatsApp; gambar ikut terlampir).
+- **Foto di draf**: foto DE ikut tersimpan di draf otomatis (foto sudah dikompres otomatis ke 900 px saat dipilih/diambil).
+- **Kunci versi paket**: rilis berikutnya membuat `package-lock.json` otomatis dan menyimpannya di repo; build selanjutnya memakai `npm ci` sehingga versi paket selalu sama persis.
+
+## Fitur 1.4
+- **Ikon notifikasi**: ikon kecil di bilah status berupa huruf U putih (Android hanya memakai bentuk), ikon besar di dalam notifikasi memakai ikon aplikasi berwarna. Notifikasi lama otomatis dijadwalkan ulang dengan ikon baru saat app dibuka.
+- **Antrean offline halaman lain**: selain Filling-DE, simpan **Proses** dan **Rework Tracker** yang gagal karena tidak ada koneksi ditandai "Tertunda" dan dikirim otomatis saat online (maks. 3 percobaan). Sterilizer, Proses, dan Planning sudah menyimpan isian di HP setiap berubah; Rework Tracker kini ikut punya draf (dipulihkan maks. 24 jam, hanya bila ada perubahan yang belum masuk Drive).
+- **Pengingat pintar**: notifikasi dijadwalkan untuk 4 hari ke depan dan hanya untuk shift yang laporannya belum tersimpan. Setelah laporan Filling-DE shift itu berhasil tersimpan (dalam 9 jam sebelum jam pengingat), pengingatnya dibatalkan. Jadwal diperbarui setiap app dibuka atau setelah menyimpan laporan.
+
 ## Perilaku khas Android (hanya di APK)
 - Tidak ada tombol "Install aplikasi di HP" dan tombol "Muat Ulang"; riwayat/data dimuat dengan **tarik layar ke bawah** di tab terkait.
 - Tombol Back Android: menutup panel, lalu kembali ke menu utama, lalu tekan dua kali untuk keluar.

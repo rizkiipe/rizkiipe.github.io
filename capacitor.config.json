@@ -20,6 +20,10 @@
     "SystemBars": {
       "insetsHandling": "disable",
       "style": "DARK"
+    },
+    "LocalNotifications": {
+      "smallIcon": "ic_stat_utrack",
+      "iconColor": "#33D8C9"
     }
   }
 }
