@@ -1,7 +1,0 @@
-2 file di folder ini menggantikan isi file yang sudah ada di folder .github (tersembunyi), lewat GitHub:
-
-1. build-apk.yml   -> GANTI isi  .github/workflows/build-apk.yml
-2. build-check.yml -> GANTI isi  .github/workflows/build-check.yml
-
-Caranya: buka file tujuan di GitHub > ikon pensil > hapus semua isi > tempel isi file dari sini > Commit changes.
-Dua file ini membuat package-lock.json otomatis pada rilis berikutnya (kunci versi paket).
