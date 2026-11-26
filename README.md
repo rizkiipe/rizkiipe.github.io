@@ -114,8 +114,8 @@ Setiap rilis, APK otomatis dikirim ke grup itu. Langkah ini dilewati bila secret
 - Draf **lebih dari 2 jam**: langsung terbuka laporan baru dan draf lama dihapus (sebelumnya dipulihkan sampai 14 jam).
 - Pengecualian: laporan yang masih **antre terkirim (offline)** dipulihkan otomatis tanpa bertanya selama **6 jam** terakhir, supaya data yang belum terkirim ke Drive tidak hilang.
 
-## Perubahan 1.4.8
-Merangkum perubahan setelah 1.4.4 (termasuk 1.4.5 sampai 1.4.7).
+## Perubahan 1.4.9
+Merangkum perubahan setelah 1.4.4 (termasuk 1.4.5 sampai 1.4.8).
 
 **Efisiensi: peringatan selisih total liter**
 - Peringatan "Total liter hasil baca beda dengan Total di sheet" kini menyebut selisihnya, arah selisih (hasil baca lebih besar atau lebih kecil dari sheet) beserta dugaan penyebabnya, dan menampilkan sampai 4 tanggal dengan selisih terbesar.
