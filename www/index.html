@@ -7265,13 +7265,14 @@ function pmBatchTotal(str){
   return n > 0 ? String(n).replace('.', ',') : '';   // pmN() membaca koma sebagai desimal (titik = ribuan)
 }
 const pmBFmt = n => String(Math.round(n * 10) / 10).replace('.', ',');
-// Kode dinormalkan (huruf+angka saja): "CHM 250" -> CHM250. Kode Masak sebaiknya sama persis dengan kolom Code di sheet Planning.
+// Kode = huruf depan saja, angka ukuran diabaikan (resep sama): "CHM 250", "CHM 1000" dan "CHM" semuanya = CHM; "PLM 1000 (H)" = PLM.
 const pmNorm = t => String(t || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
 const pmBase = t => { const m = /^[A-Z]+/.exec(pmNorm(t)); return m ? m[0] : ''; };
+const pmCode = t => pmBase(t) || pmNorm(t);
 const pmCodeNames = {};
 function pmCookMapOf(items){
   const o = {};
-  (items || []).forEach(it => { if(!it || it.t !== 'm') return; const k = pmNorm(it.prod); if(!k) return; if(!pmCodeNames[k]) pmCodeNames[k] = String(it.prod).trim(); o[k] = (o[k] || 0) + (pmN(it.b) || 1); });
+  (items || []).forEach(it => { if(!it || it.t !== 'm') return; const k = pmCode(it.prod); if(!k) return; o[k] = (o[k] || 0) + (pmN(it.b) || 1); });
   return o;
 }
 function pmItemsOfData(data){   // semua aktivitas dalam satu file Drive: input Dashboard + yang belum diinput
@@ -7280,7 +7281,7 @@ function pmItemsOfData(data){   // semua aktivitas dalam satu file Drive: input 
 }
 // Cache batch yang sudah dimasak per laporan (Drive) untuk week terpilih
 let pmWC = { wk: 0, at: 0, files: {} }, pmWCBusy = false, pmWCLast = 0;
-try{ const c = JSON.parse(localStorage.getItem('pm_wc_v1') || 'null'); if(c && c.files) pmWC = Object.assign(pmWC, c, { at: 0 }); }catch(e){}
+try{ const c = JSON.parse(localStorage.getItem('pm_wc_v2') || 'null'); if(c && c.files) pmWC = Object.assign(pmWC, c, { at: 0 }); }catch(e){}
 function pmWeekDates(wk){
   const base = new Date((PM.d.tgl || isoDateStr(new Date())) + 'T00:00:00'), out = [];
   if(isNaN(base)) return out;
@@ -7303,19 +7304,14 @@ function pmCookedBatches(){
   });
   return total;
 }
-// per baris planning: plan, dimasak, sisa. Tahap 1: kode persis sama; tahap 2: sisa batch dicocokkan lewat huruf depan kode (CHM 250 <- "CHM").
+// per baris planning: plan, dimasak, sisa. Batch yang dimasak per kode (CHM, PLM, ...) mengurangi baris-baris planning berkode sama
+// (mis. CHM 125, CHM 200, CHM 250 ...) secara berurutan sesuai urutan di sheet.
 function pmPlanCalc(){
   const pool = Object.assign({}, pmCookedBatches());
   const rows = PM.plan.map(r => {
-    const plan = pmN(r.b), k = pmNorm(r.mk || r.c || r.p), ok = String(r.p || '').trim() && plan > 0;
+    const plan = pmN(r.b), k = pmCode(r.mk || r.c || r.p), ok = !!(String(r.p || '').trim() && plan > 0);
     const use = ok ? Math.min(plan, pool[k] || 0) : 0; if(use) pool[k] -= use;
     return { plan: ok ? plan : 0, cooked: use, sisa: ok ? plan - use : 0, k, ok };
-  });
-  Object.keys(pool).forEach(pk => {
-    if(!(pool[pk] > 1e-9)) return;
-    rows.forEach((c, i) => { if(!(pool[pk] > 1e-9) || !c.ok || !(c.sisa > 1e-9)) return; const r = PM.plan[i];
-      if(pmBase(r.mk || r.c || r.p) !== pmBase(pk) || !pmBase(pk)) return;
-      const use = Math.min(c.sisa, pool[pk]); pool[pk] -= use; c.cooked += use; c.sisa -= use; });
   });
   rows.left = pool;
   return rows;
@@ -7326,10 +7322,10 @@ function pmPlanLive(){
   document.querySelectorAll('[data-pls]').forEach(el => { const x = c[+el.dataset.pls]; el.innerHTML = x ? pmPlsTxt(x) : ''; });
   const el = document.getElementById('pmWCMsg');
   if(el){
-    const left = Object.keys(c.left || {}).filter(k => c.left[k] > 1e-9).map(k => pmE(pmCodeNames[k] || k));
+    const left = Object.keys(c.left || {}).filter(k => c.left[k] > 1e-9).map(k => pmE(k));
     const nf = Object.values(pmWC.files || {}).filter(f => pmWeek(f.key.split('|')[0]) === Number(pmWk())).length;
     el.innerHTML = `Dimasak dihitung selama week ${pmE(pmWk())}: form ini + ${nf} laporan lain${pmWCBusy ? ' · memuat dari Drive…' : ''}`
-      + (left.length ? `<br><span style="color:var(--amber)">⚠ Kode Masak tidak cocok dengan planning: ${left.join(', ')} — pilih kode dari daftar planning</span>` : '');
+      + (left.length ? `<br><span style="color:var(--amber)">⚠ Kode Masak tidak cocok dengan planning: ${left.join(', ')} — pilih kode dari daftar (tanpa angka, mis. CHM)</span>` : '');
   }
 }
 async function pmWeekCookLoad(force){
@@ -7349,7 +7345,7 @@ async function pmWeekCookLoad(force){
       next[f.id] = { mt: f.modifiedTime, key: `${data.meta.tanggal}|${data.meta.shift}|${data.meta.group}`, map: pmCookMapOf(pmItemsOfData(data)) };
     }));
     pmWC = { wk, at: Date.now(), files: next };
-    try{ localStorage.setItem('pm_wc_v1', JSON.stringify(pmWC)); }catch(e){}
+    try{ localStorage.setItem('pm_wc_v2', JSON.stringify(pmWC)); }catch(e){}
   }catch(e){ console.warn('pmWeekCookLoad', e); }
   finally{ pmWCBusy = false; pmPlanLive(); }
 }
@@ -7408,7 +7404,7 @@ async function pmLoadPlanFromSheet(auto){
 
 function pmMixHtml(){
   const d = PM.d;
-  const dl = id => ({ pmProd: [...new Set(PM.plan.map(r => String(r.c || '').trim()).filter(Boolean).concat(['CHS', 'PLS', 'STS', 'UMP', 'UMS', 'UMC', 'UMM', 'UMV', 'LFP', 'LFC', 'MCS', 'TKT', 'BLCS', 'RGG', 'Taro']))],
+  const dl = id => ({ pmProd: [...new Set(PM.plan.map(r => pmBase(r.c)).filter(Boolean).concat(['CHS', 'PLS', 'STS', 'UMP', 'UMS', 'UMC', 'UMM', 'UMV', 'LFP', 'LFC', 'MCS', 'TKT', 'BLCS', 'RGG', 'Taro']))],
     pmDst: [...Array.from({ length: 40 }, (_, i) => 'ST ' + String(i + 1).padStart(2, '0')), ...[1, 2, 3, 4, 5, 6, 7, 8, 9].map(n => 'Silo 0' + n)] }[id]);
   let h = ['pmProd', 'pmDst'].map(id => `<datalist id="${id}">${dl(id).map(v => `<option value="${v}">`).join('')}</datalist>`).join('');
   h += pmCard('🧪 Info Laporan Mixing', pmIn('Tanggal', 'd.tgl', d.tgl, { t: 'date' }) +
@@ -7435,7 +7431,7 @@ function pmMixHtml(){
     `<div class="field"><label>Weeks (pilih dari sheet Planning)</label><div style="display:flex;gap:6px"><select id="pmWkSel" style="flex:1" onchange="pmPickWk(this.value)">${pmWkOptions()}</select>${pmBt('↻ Muat dari sheet', 'pmLoadPlanFromSheet()')}</div></div>`
     + `<div id="pmPlanMsg" style="font-size:11px;color:var(--muted);margin-bottom:6px">${pmPlanInfo}</div>`
     + `<div id="pmWCMsg" style="font-size:11px;color:var(--muted);margin-bottom:6px"></div>`
-    + '<div style="font-size:11px;color:var(--muted);margin-bottom:6px">Produk = kolom Product Name, Batch planning = angka setelah garis miring di Achivment (batch). Batch otomatis berkurang oleh Masak di SEMUA proses (milk, juice, tea, dll) selama satu week, selama kode Masak sama dengan kode planning; sisa 0 = ditulis "Done". Kebutuhan fresh milk dihitung dari sisa.</div>' +
+    + '<div style="font-size:11px;color:var(--muted);margin-bottom:6px">Produk = kolom Product Name, Batch planning = angka setelah garis miring di Achivment (batch). Batch otomatis berkurang oleh Masak di SEMUA proses (milk, juice, tea, dll) selama satu week, selama kode Masak sama dengan kode planning tanpa angka ukuran (CHM, PLM, UMP, …); sisa 0 = ditulis "Done". Kebutuhan fresh milk dihitung dari sisa.</div>' +
     (() => { const calc = pmPlanCalc(); return PM.plan.map((r, i) => `<div style="margin-bottom:6px"><div style="display:flex;gap:6px;align-items:flex-end"><div style="flex:1">${pmG(3, pmIn('Produk', `plan.${i}.p`, r.p, { ph: 'CHS (50 k)' }) + pmIn('Batch planning', `plan.${i}.b`, r.b, { m: 'decimal' }) + pmIn('FM/batch (L)', `plan.${i}.per`, r.per, { m: 'decimal', ph: pmFmOf(r.p) || '' }))}</div>${rowDel('plan', i)}</div>`
       + `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:11px;color:var(--muted);margin-top:-4px">Kode Masak <input style="width:76px;padding:4px 8px;font-size:12px" value="${pmE(r.mk || '')}" placeholder="${pmE(calc[i].k)}" oninput="pmSet('plan.${i}.mk',this.value)"><span data-pls="${i}">${pmPlsTxt(calc[i])}</span></div></div>`).join(''); })() +
     pmBt('+ Baris planning', `pmAddRow('plan',{p:'',b:'',per:''})`) + pmTa('Penambahan planning (satu per baris)', 'd.planAdd', d.planAdd));
@@ -9651,7 +9647,7 @@ Object.assign(window, {
 <div id="appVersion" style="text-align:center;font:500 11px 'IBM Plex Mono',monospace;color:var(--muted);opacity:.75;padding:14px 0 4px"></div>
 <script>
 /* APP_VERSION diisi otomatis oleh workflow rilis (jangan diubah manual). */
-var APP_VERSION = '1.4.7';
+var APP_VERSION = '1.0.0';
 (function(){
   var el = document.getElementById('appVersion');
   if(el) el.textContent = 'U-Track v' + APP_VERSION + (window.IS_NATIVE ? '' : ' · Web');
