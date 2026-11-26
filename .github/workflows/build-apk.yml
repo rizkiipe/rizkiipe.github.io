@@ -1,20 +1,30 @@
 name: Build & Release APK
 
-# Satu rilis = satu versi untuk APK DAN situs https://laporan-de-uht-62ebd.web.app :
-#   Actions -> "Build & Release APK" -> Run workflow -> isi nomor versi (mis. 1.0.1)
-#   (atau push tag, mis. v1.0.1)
+# Satu rilis = satu versi untuk APK DAN situs https://laporan-de-uht-62ebd.web.app
+# Tiga cara memicu rilis:
+#   1. OTOMATIS: ubah isi file VERSION di repo (mis. jadi 1.4.8) lalu commit ke main
+#   2. Manual : Actions -> "Build & Release APK" -> Run workflow -> isi nomor versi (kosong = pakai file VERSION)
+#   3. Push tag, mis. v1.4.8
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Nomor versi, mis. 1.0.1'
-        required: true
+        description: 'Nomor versi, mis. 1.0.1 (kosong = isi file VERSION)'
+        required: false
+        default: ''
       notes:
         description: 'Catatan update (tampil di dialog update)'
         required: false
         default: ''
   push:
+    branches: [main]
+    paths: ['VERSION']
     tags: ['v*']
+
+# Satu rilis pada satu waktu (rilis berikutnya menunggu yang sedang berjalan)
+concurrency:
+  group: release-apk
+  cancel-in-progress: false
 
 permissions:
   contents: write
@@ -45,15 +55,43 @@ jobs:
         env:
           INPUT_VERSION: ${{ inputs.version }}
         run: |
-          VERSION="${INPUT_VERSION:-${GITHUB_REF_NAME}}"
+          # Urutan: isian Run workflow -> nama tag -> file VERSION
+          VERSION="$INPUT_VERSION"
+          if [ -z "$VERSION" ] && [ "$GITHUB_REF_TYPE" = "tag" ]; then VERSION="$GITHUB_REF_NAME"; fi
+          if [ -z "$VERSION" ] && [ -f VERSION ]; then VERSION="$(tr -d '[:space:]' < VERSION)"; fi
           VERSION="${VERSION#v}"
           if ! echo "$VERSION" | grep -Eq '^[0-9]+(\.[0-9]+){1,2}$'; then
-            echo "Format versi harus angka titik, mis. 1.0.1 (dapat: $VERSION)"; exit 1
+            echo "::error::Format versi harus angka titik, mis. 1.0.1 (dapat: '$VERSION'). Isi file VERSION atau isian Run workflow."; exit 1
           fi
           IFS=. read -r MA MI PA <<< "$VERSION"
           CODE=$((MA*10000 + MI*100 + ${PA:-0}))
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
           echo "VCODE=$CODE" >> "$GITHUB_ENV"
+
+      - name: Pastikan versi baru (belum pernah dirilis dan lebih besar dari rilis terakhir)
+        run: |
+          TAGS=$(git ls-remote --tags --refs origin 'v*' | sed 's|.*refs/tags/v||')
+          # Kalau dipicu oleh push tag, tag itu sendiri tidak dihitung
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then TAGS=$(echo "$TAGS" | grep -vx "${GITHUB_REF_NAME#v}" || true); fi
+          if echo "$TAGS" | grep -qx "$VERSION"; then
+            echo "::error::Versi $VERSION sudah pernah dirilis. Naikkan nomor versi (file VERSION atau isian Run workflow), karena build dengan versi yang sama tidak bisa dipasang sebagai update."; exit 1
+          fi
+          LATEST=$(echo "$TAGS" | sed '/^$/d' | sort -V | tail -1)
+          if [ -n "$LATEST" ] && [ "$(printf '%s\n%s\n' "$LATEST" "$VERSION" | sort -V | tail -1)" != "$VERSION" ]; then
+            echo "::error::Versi $VERSION harus lebih besar dari rilis terakhir ($LATEST)."; exit 1
+          fi
+          echo "Versi $VERSION OK (rilis terakhir: ${LATEST:-belum ada})"
+
+      - name: Catatan update
+        env:
+          INPUT_NOTES: ${{ inputs.notes }}
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
+        run: |
+          # Run workflow: pakai isian catatan. Push VERSION/tag: pakai pesan commit terakhir
+          NOTES="$INPUT_NOTES"
+          if [ -z "$NOTES" ] && [ -n "$COMMIT_MSG" ]; then NOTES="$COMMIT_MSG"; fi
+          D="EOF_$(openssl rand -hex 8)"
+          { echo "NOTES<<$D"; echo "$NOTES"; echo "$D"; } >> "$GITHUB_ENV"
 
       - name: Isi versi, alamat situs, dan repo ke index.html
         run: |
@@ -148,7 +186,7 @@ jobs:
         with:
           tag_name: v${{ env.VERSION }}
           name: U-Track v${{ env.VERSION }}
-          body: ${{ inputs.notes }}
+          body: ${{ env.NOTES }}
           files: out/U-Track.apk
           make_latest: true
 
@@ -173,9 +211,10 @@ jobs:
           serviceCredentialsFileContent: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
           groups: ${{ vars.FIREBASE_DIST_GROUPS || 'tim' }}
           file: out/U-Track.apk
-          releaseNotes: ${{ inputs.notes }}
+          releaseNotes: ${{ env.NOTES }}
 
       # Simpan nomor versi ke repo supaya sumber di GitHub ikut sama dengan APK dan situs
+      # (pakai token bawaan Actions, jadi commit ini TIDAK memicu build baru)
       - name: Simpan nomor versi ke repo
         if: env.NEW_KEY == 'false'
         run: |
