@@ -7250,6 +7250,56 @@ function pmItemHtml(it, pi, ii){
   if(it.t === 'a') return `<div style="border:1px solid var(--line);border-radius:10px;padding:8px;margin-bottom:8px">${pmIn('Aktivitas (hasil: Aktivitas -> mulai - selesai)', b + 'txt', it.txt, { ph: 'Cip Homo' })}${pmG(2, pmIn('Mulai', b + 's', it.s, { t: 'time' }) + pmIn('Selesai', b + 'e', it.e, { t: 'time' }))}<div style="text-align:right">${pmBt('Hapus', `pmDelItem(${pi},${ii})`)}</div></div>`;
   return `<div style="display:flex;gap:6px;align-items:flex-end;margin-bottom:8px"><div style="flex:1">${pmIn('Aktivitas', b + 'txt', it.txt, { ph: 'Cleaning Area' })}</div>${pmBt('✕', `pmDelItem(${pi},${ii})`, 'margin-bottom:8px')}</div>`;
 }
+// ---------- Planning WIP dari sheet Planning (dropdown Week + isi baris otomatis) ----------
+// Produk = kolom E "Product Name"; Batch = angka SETELAH garis miring di kolom I "Achivment (batch)" (mis. "8.8/9" -> 9).
+let pmWkTabs = [], pmWkBusy = false, pmWkTried = false, pmPlanInfo = '';
+function pmBatchTotal(str){
+  const m = /\/\s*([\d.,]+)/.exec(String(str == null ? '' : str)); if(!m) return '';
+  const n = parseFloat(m[1].replace(',', '.'));
+  return n > 0 ? String(n).replace('.', ',') : '';   // pmN() membaca koma sebagai desimal (titik = ribuan)
+}
+function pmPlanMsg(h){ pmPlanInfo = h; const el = document.getElementById('pmPlanMsg'); if(el) el.innerHTML = h; }
+function pmWkOptions(){
+  const cur = String(PM.d.wk || '').trim(), ws = [...new Set(pmWkTabs.map(x => x.wk))].sort((a, b) => a - b);
+  return `<option value="">Otomatis (${pmE(pmWeek(PM.d.tgl))})</option>`
+    + (cur && !ws.some(w => String(w) === cur) ? `<option value="${pmE(cur)}" selected>Week ${pmE(cur)}</option>` : '')
+    + ws.map(w => `<option value="${w}"${String(w) === cur ? ' selected' : ''}>Week ${w}</option>`).join('');
+}
+function pmFillWkSel(){ const el = document.getElementById('pmWkSel'); if(el) el.innerHTML = pmWkOptions(); }
+async function pmLoadWkTabs(force){
+  if(pmWkBusy) return; pmWkBusy = true; pmWkTried = true;
+  try{
+    pmPlanMsg('Mengambil daftar week dari sheet Planning…');
+    if(force) await getAccessToken();
+    if(!planTabs.length) planTabs = await planFetchTabs();
+    pmWkTabs = planTabs.map(t => ({ wk: planWeekNo(t), tab: t })).filter(x => x.wk > 0);
+    pmFillWkSel();
+    pmPlanMsg(pmWkTabs.length ? `🟢 ${pmWkTabs.length} week ditemukan di sheet` : '⚠ Tidak ada tab week (W45, Week 45, …) di sheet Planning');
+  }catch(e){ pmPlanMsg('🔴 ' + pmE(e && e.message ? e.message : 'Gagal mengambil daftar week') + ' — tekan “Muat dari sheet” untuk mencoba lagi'); }
+  finally{ pmWkBusy = false; }
+}
+async function pmPickWk(v){
+  PM.d.wk = v; pmSave();
+  const t = document.getElementById('pmWkT'); if(t) t.textContent = pmWk();
+  await pmLoadPlanFromSheet();
+}
+async function pmLoadPlanFromSheet(){
+  if(pmWkBusy) return;
+  try{
+    if(!pmWkTabs.length){ await pmLoadWkTabs(true); if(!pmWkTabs.length) return; }
+    const wk = Number(pmWk()), t = pmWkTabs.find(x => x.wk === wk);
+    if(!t){ pmPlanMsg(`⚠ Tab Week ${pmE(pmWk())} tidak ada di sheet Planning`); return; }
+    pmPlanMsg(`Mengambil planning ${pmE(t.tab)}…`);
+    const data = planParse(await planFetchValues(t.tab));
+    if(!data){ pmPlanMsg(`⚠ Format tab “${pmE(t.tab)}” tidak dikenali (header “Product Name” tidak ketemu)`); return; }
+    const rows = data.items.map(x => ({ p: x.name, b: pmBatchTotal(x.batch), per: '' })).filter(r => r.b);
+    if(!rows.length){ pmPlanMsg(`⚠ Tab “${pmE(t.tab)}” tidak punya baris dengan batch planning`); return; }
+    if(PM.plan.some(r => String(r.b || '').trim()) && !confirm(`Ganti baris planning dengan ${rows.length} produk dari ${t.tab}? Isian batch yang sekarang akan diganti.`)){ pmPlanMsg('Dibatalkan — baris planning tidak diubah'); return; }
+    PM.plan = rows; pmSave(); pmRender();
+    pmPlanMsg(`🟢 ${rows.length} produk dari ${pmE(t.tab)} · ${new Date().toLocaleTimeString('id-ID')}`);
+  }catch(e){ pmPlanMsg('🔴 ' + pmE(e && e.message ? e.message : 'Gagal memuat planning')); }
+}
+
 function pmMixHtml(){
   const d = PM.d;
   const dl = id => ({ pmProd: ['CHS', 'PLS', 'STS', 'UMP', 'UMS', 'UMC', 'UMM', 'UMV', 'LFP', 'LFC', 'MCS', 'TKT', 'BLCS', 'RGG', 'Taro'],
@@ -7275,7 +7325,10 @@ function pmMixHtml(){
   const rowDel = (list, i) => pmBt('✕', `pmDelRow('${list}',${i})`, 'margin-bottom:8px');
   h += pmCard('🧮 Buffer untuk shift selanjutnya', '<div style="font-size:11px;color:var(--muted);margin-bottom:6px">FM = FM per satu batch (mis. 13.000), diingat per produk dan terisi otomatis. Batch = jumlah batch buffer.</div>' + PM.buffer.map((r, i) => `<div style="display:flex;gap:6px;align-items:flex-end"><div style="flex:1">${pmG(3, pmIn('Produk', `buffer.${i}.p`, r.p, { list: 'pmProd', ph: 'CHS (50 k)' }) + pmIn('Batch', `buffer.${i}.b`, r.b, { m: 'numeric' }) + pmIn('FM/batch (L)', `buffer.${i}.per`, r.per, { m: 'decimal', ph: pmFmOf(r.p) || '' }))}</div>${rowDel('buffer', i)}</div>`).join('') + pmBt('+ Baris buffer', `pmAddRow('buffer',{p:'',b:'',per:'',l:''})`));
   h += `<details class="de-card" style="border-left-color:var(--cyan)"><summary class="card-h" style="cursor:pointer">🛢 Stock WIP ST & Silo (kosong = "Kosong")</summary>${pmG(2, PM.stock.map((r, i) => pmIn(r[0], `stock.${i}.1`, r[1], { ph: 'Kosong' })).join(''))}</details>`;
-  h += pmCard('📅 Planning WIP belum dimasak · Weeks ' + pmWk(), pmIn('Weeks (kosong = otomatis ' + pmWeek(d.tgl) + ')', 'd.wk', d.wk, { m: 'numeric' }) + '<div style="font-size:11px;color:var(--muted);margin-bottom:6px">Batch kosong = ditulis "Done". Kebutuhan fresh milk dihitung otomatis.</div>' +
+  h += pmCard('📅 Planning WIP belum dimasak · Weeks <span id="pmWkT">' + pmWk() + '</span>',
+    `<div class="field"><label>Weeks (pilih dari sheet Planning)</label><div style="display:flex;gap:6px"><select id="pmWkSel" style="flex:1" onchange="pmPickWk(this.value)">${pmWkOptions()}</select>${pmBt('↻ Muat dari sheet', 'pmLoadPlanFromSheet()')}</div></div>`
+    + `<div id="pmPlanMsg" style="font-size:11px;color:var(--muted);margin-bottom:6px">${pmPlanInfo}</div>`
+    + '<div style="font-size:11px;color:var(--muted);margin-bottom:6px">Produk = kolom Product Name, Batch = angka setelah garis miring di Achivment (batch). Batch kosong = ditulis "Done". Kebutuhan fresh milk dihitung otomatis.</div>' +
     PM.plan.map((r, i) => `<div style="display:flex;gap:6px;align-items:flex-end"><div style="flex:1">${pmG(3, pmIn('Produk', `plan.${i}.p`, r.p, { ph: 'CHS (50 k)' }) + pmIn('Batch', `plan.${i}.b`, r.b, { m: 'numeric' }) + pmIn('FM/batch (L)', `plan.${i}.per`, r.per, { m: 'decimal', ph: pmFmOf(r.p) || '' }))}</div>${rowDel('plan', i)}</div>`).join('') +
     pmBt('+ Baris planning', `pmAddRow('plan',{p:'',b:'',per:''})`) + pmTa('Penambahan planning (satu per baris)', 'd.planAdd', d.planAdd));
   return h;
@@ -7296,6 +7349,7 @@ function pmRender(){
   const tb = (k, t) => `<button type="button" class="btn-secondary" style="flex:1;padding:10px;border-radius:10px;${PM.tab === k ? 'border-color:var(--cyan) !important;color:var(--cyan);' : ''}" onclick="pmTab('${k}')">${t}</button>`;
   el.innerHTML = `<div style="display:flex;gap:8px;margin-bottom:12px">${tb('mix', 'Mixing')}${tb('cut', 'Cutting & Hygiene')}</div>` + (PM.tab === 'cut' ? pmCutHtml() : pmMixHtml());
   pmLive();
+  if(PM.tab !== 'cut' && !pmWkTried && !pmWkBusy && accessToken) pmLoadWkTabs(false);
 }
 function pmRenderReport(){
   const el = document.getElementById('pmReport'); if(!el) return;
@@ -8252,7 +8306,7 @@ async function effOpenSource(){
 // ---- baca satu tab: liter per FM per shift + label grup + total sheet (untuk cek) ----
 function effNum(v){ return typeof v === 'number' ? (isFinite(v) ? v : 0) : (parseFloat(String(v == null ? '' : v).replace(/,/g, '')) || 0); }
 function effParseTab(rows){
-  const fm = {}; let cur = 0;
+  const fm = {}; let cur = 0, neg = 0;
   for(let i = 3; i < rows.length; i++){
     const r = rows[i] || [];
     const b = r[1], hasSku = String(r[2] == null ? '' : r[2]).trim() !== '' || String(r[3] == null ? '' : r[3]).trim() !== '';
@@ -8260,7 +8314,7 @@ function effParseTab(rows){
     if(bn >= 10 && bn <= 99) cur = bn; else if(!(String(b == null ? '' : b).trim() === '' && hasSku)) continue;
     if(!cur) continue;
     const o = fm[cur] || (fm[cur] = { C:0, A:0, B:0 });
-    ['C','A','B'].forEach(sh => EFF_COLS[sh].forEach(ci => { o[sh] += effNum(r[ci]); }));
+    ['C','A','B'].forEach(sh => EFF_COLS[sh].forEach(ci => { const v = effNum(r[ci]); o[sh] += v; if(v < 0) neg += v; }));
   }
   const groups = [];
   for(let i = 0; i < Math.min(rows.length, 30); i++){
@@ -8278,7 +8332,7 @@ function effParseTab(rows){
       break;
     }
   }
-  return { fm, groups, sheetTotal };
+  return { fm, groups, sheetTotal, neg };
 }
 function effCap(no){ return (EFF_SPEED[no] || 0) * EFF_HOURS * EFF_FACTOR; }
 
@@ -8311,7 +8365,7 @@ async function effLoad(force){
       if(!groups && p.groups.length) groups = p.groups;
       let tot = 0; Object.keys(p.fm).forEach(k => ['C','A','B'].forEach(sh => { tot += p.fm[k][sh]; }));
       mine += tot; sheet += p.sheetTotal || 0;
-      return { tab: String(g.name).trim(), fm: p.fm, total: tot };
+      return { tab: String(g.name).trim(), fm: p.fm, total: tot, sheetTotal: p.sheetTotal || 0, neg: p.neg || 0 };
     });
     try{ effSched = effSchedFromRows(await effReadHeader(), effMonth); }catch(e){ effSched = {}; console.warn('Jadwal grup LAPORAN tidak terbaca, pakai bawaan', e); }
     effData = { days, groups: effFixGroups(groups || EFF_GROUPS_DEFAULT), mine, sheet, at: Date.now() };
@@ -8422,6 +8476,20 @@ function effSpark(per, h){
   return `<svg class="eff-spark" viewBox="0 0 ${W} ${h}" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Perjalanan efisiensi per hari">${g}</svg>`;
 }
 
+// Peringatan selisih total: arah selisih menentukan dugaan penyebab; rincian tanggal terbesar membantu mencari tab yang bermasalah.
+function effDiffWarn(fmt, shown){
+  const d = effData, delta = d.mine - d.sheet, neg = d.days.reduce((a, x) => a + (x.neg || 0), 0);
+  const rows = d.days.filter(x => x.sheetTotal > 0 && Math.abs(x.total - x.sheetTotal) > 1)
+    .map(x => ({ tab: x.tab, dl: x.total - x.sheetTotal })).sort((a, b) => Math.abs(b.dl) - Math.abs(a.dl));
+  const sgn = n => (n > 0 ? '+' : '−') + fmt(Math.abs(n));
+  const why = delta > 0 ? 'Hasil baca LEBIH BESAR dari sheet: kemungkinan ada baris yang terhitung dobel/ikut terbaca (mis. baris subtotal atau angka 10–99 di kolom B yang dikira nomor FM), atau Total di sheet memang tidak memuat semua baris.'
+                        : 'Hasil baca LEBIH KECIL dari sheet: kemungkinan ada baris FM yang tidak terbaca.';
+  const top = rows.slice(0, 4).map(x => `Tgl ${planEsc(x.tab)} (${sgn(x.dl)})`).join(', ');
+  return `<div style="font-size:12px;color:var(--amber);margin-top:8px;line-height:1.5">⚠ Total liter hasil baca (${fmt(d.mine)}) beda dengan Total di sheet (${fmt(d.sheet)}), selisih ${sgn(delta)}. ${why}`
+    + (top ? `<br>Selisih terbesar: ${top}${rows.length > 4 ? ` dan ${rows.length - 4} tanggal lain` : ''}.` : '')
+    + (Math.abs(shown - d.mine) > 1 ? `<br>Angka "Liter aktual" di atas (${fmt(shown)}) hanya menjumlah nilai positif${neg < 0 ? `; ada nilai minus total ${fmt(Math.abs(neg))} L di sheet yang tidak ikut` : ''}, jadi bisa berbeda dari hasil baca.` : '')
+    + `</div>`;
+}
 function effRender(){
   if(typeof dspBuildGrid === 'function') dspBuildGrid();
   const sum = document.getElementById('effSummary'), out = document.getElementById('effOut'), head = document.getElementById('effListHead');
@@ -8466,7 +8534,7 @@ function effRender(){
       </div>
       <div style="font-size:11px;color:var(--muted);margin-top:8px;font-family:'IBM Plex Mono',monospace">Pembagi = kecepatan FM × 8 jam × 85%, hanya FM yang jalan</div>
       ${actDays.length ? `<details ${effOpen.has('total') ? 'open' : ''} ontoggle="effToggle('total', this.open)"><summary>Perjalanan per hari</summary>${effSpark(all.per, 60)}<div style="font-size:11px;color:var(--muted);margin-top:6px;font-family:'IBM Plex Mono',monospace">garis putus hijau = 90%</div></details>` : ''}
-      ${diff ? `<div style="font-size:12px;color:var(--amber);margin-top:8px;">⚠ Total liter hasil baca (${fmt(effData.mine)}) beda dengan Total di sheet (${fmt(effData.sheet)}). Cek apakah ada baris FM yang tidak terbaca.</div>` : ''}
+      ${diff ? effDiffWarn(fmt, all.l) : ''}
       ${noSpeed.length ? `<div style="font-size:12px;color:var(--amber);margin-top:8px;">⚠ Kecepatan FM ${noSpeed.join(', ')} belum ada di tabel, tidak dihitung pembaginya.</div>` : ''}
     </div>`;
 
@@ -9473,7 +9541,7 @@ Object.assign(window, {
 <div id="appVersion" style="text-align:center;font:500 11px 'IBM Plex Mono',monospace;color:var(--muted);opacity:.75;padding:14px 0 4px"></div>
 <script>
 /* APP_VERSION diisi otomatis oleh workflow rilis (jangan diubah manual). */
-var APP_VERSION = '1.4.4';
+var APP_VERSION = '1.0.0';
 (function(){
   var el = document.getElementById('appVersion');
   if(el) el.textContent = 'U-Track v' + APP_VERSION + (window.IS_NATIVE ? '' : ' · Web');
