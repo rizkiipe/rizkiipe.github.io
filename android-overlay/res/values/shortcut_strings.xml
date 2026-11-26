@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="sc_de_short">Filling-DE</string>
+    <string name="sc_de_long">Buka Filling-DE</string>
+    <string name="sc_ster_short">Sterilizer</string>
+    <string name="sc_ster_long">Buka Sterilizer</string>
+    <string name="sc_proc_short">Proses</string>
+    <string name="sc_proc_long">Buka Proses</string>
+    <string name="sc_plan_short">Planning</string>
+    <string name="sc_plan_long">Buka Planning</string>
+</resources>

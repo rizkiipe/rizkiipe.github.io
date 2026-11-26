@@ -83,6 +83,30 @@ Setiap rilis, APK otomatis dikirim ke grup itu. Langkah ini dilewati bila secret
 - **Antrean offline halaman lain**: selain Filling-DE, simpan **Proses** dan **Rework Tracker** yang gagal karena tidak ada koneksi ditandai "Tertunda" dan dikirim otomatis saat online (maks. 3 percobaan). Sterilizer, Proses, dan Planning sudah menyimpan isian di HP setiap berubah; Rework Tracker kini ikut punya draf (dipulihkan maks. 24 jam, hanya bila ada perubahan yang belum masuk Drive).
 - **Pengingat pintar**: notifikasi dijadwalkan untuk 4 hari ke depan dan hanya untuk shift yang laporannya belum tersimpan. Setelah laporan Filling-DE shift itu berhasil tersimpan (dalam 9 jam sebelum jam pengingat), pengingatnya dibatalkan. Jadwal diperbarui setiap app dibuka atau setelah menyimpan laporan.
 
+## Fitur 1.4.3
+- **Pintasan ikon app**: tekan lama ikon U-Track untuk langsung ke Filling-DE, Sterilizer, Proses, atau Planning.
+- **Pemeriksa akses Drive** (ikon pengguna -> Pengaturan -> Cek akses Drive): menampilkan pemilik dan siapa saja yang punya akses ke folder laporan, Rework Tracker, dan sheet yang dipakai app, dengan peringatan bila ada yang terbuka untuk umum ("siapa saja dengan link").
+
+## Keamanan (1.4.3)
+Kode aplikasi dan situs bersifat publik, jadi tidak ada rahasia yang boleh tertulis di dalamnya.
+- **Password riwayat** tidak lagi tertulis; hanya hash. Password lama tetap berlaku. Ganti lewat `tools/buat-hash.html` (bagian bawah).
+- **Token skrip DSP** dihapus dari kode. Isi sekali per perangkat di Pengaturan (ikon pengguna -> Token skrip DSP). Token itu sebelumnya tertulis di kode publik, jadi **sebaiknya diganti** dengan nilai baru di Apps Script (dan di Pengaturan tiap perangkat).
+- ID Google Sheet/Drive di kode bukan rahasia selama file-nya tidak dibuka untuk umum (app membacanya memakai login Google, bukan tautan umum). Pakai Cek akses Drive untuk memastikan.
+- Untuk menggantikan token bersama dengan verifikasi akun, app juga mengirim token login Google (`accessToken`) ke skrip DSP. Contoh pengecekan di `doPost` Apps Script:
+
+```js
+function whoIs(accessToken){
+  var r = UrlFetchApp.fetch('https://www.googleapis.com/drive/v3/about?fields=user(emailAddress)',
+    { headers: { Authorization: 'Bearer ' + accessToken }, muteHttpExceptions: true });
+  return r.getResponseCode() === 200 ? ((JSON.parse(r.getContentText()).user || {}).emailAddress || '') : '';
+}
+// di doPost(e): var body = JSON.parse(e.postData.contents);
+var email = whoIs(body.accessToken);
+var allowed = (PropertiesService.getScriptProperties().getProperty('ALLOWED_EMAILS') || '').split(',');
+if (allowed.indexOf(email) < 0) return ContentService.createTextOutput(JSON.stringify({ ok: false, error: 'forbidden' })).setMimeType(ContentService.MimeType.JSON);
+```
+  Isi properti skrip `ALLOWED_EMAILS` dengan email yang boleh (pisahkan koma).
+
 ## Perilaku khas Android (hanya di APK)
 - Tidak ada tombol "Install aplikasi di HP" dan tombol "Muat Ulang"; riwayat/data dimuat dengan **tarik layar ke bawah** di tab terkait.
 - Tombol Back Android: menutup panel, lalu kembali ke menu utama, lalu tekan dua kali untuk keluar.

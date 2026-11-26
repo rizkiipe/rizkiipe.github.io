@@ -23,6 +23,11 @@ if len(found) != 1:
 os.makedirs(os.path.join(MAIN, "res", "xml"), exist_ok=True)
 shutil.copy(os.path.join(OVER, "res", "xml", "file_paths.xml"), os.path.join(MAIN, "res", "xml", "file_paths.xml"))
 
+# 2b) Pintasan ikon app (tekan lama ikon U-Track)
+os.makedirs(os.path.join(MAIN, "res", "values"), exist_ok=True)
+shutil.copy(os.path.join(OVER, "res", "xml", "shortcuts.xml"), os.path.join(MAIN, "res", "xml", "shortcuts.xml"))
+shutil.copy(os.path.join(OVER, "res", "values", "shortcut_strings.xml"), os.path.join(MAIN, "res", "values", "shortcut_strings.xml"))
+
 # 3) Ikon launcher (PNG) dan hapus ikon adaptif bawaan
 shutil.rmtree(os.path.join(MAIN, "res", "mipmap-anydpi-v26"), ignore_errors=True)
 for d in ("mdpi", "hdpi", "xhdpi", "xxhdpi", "xxxhdpi"):
@@ -64,7 +69,9 @@ intent = (
     '                <category android:name="android.intent.category.DEFAULT" />\n'
     '                <category android:name="android.intent.category.BROWSABLE" />\n'
     '                <data android:scheme="com.utrack.app" android:host="oauth" />\n'
+    '                <data android:scheme="com.utrack.app" android:host="open" />\n'
     '            </intent-filter>\n'
+    '            <meta-data android:name="android.app.shortcuts" android:resource="@xml/shortcuts" />\n'
 )
 m = m.replace("</activity>", intent + "        </activity>")
 m = m.replace("</manifest>", perm + "</manifest>")

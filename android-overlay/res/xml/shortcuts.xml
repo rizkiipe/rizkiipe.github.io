@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="open_de"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/sc_de_short"
+        android:shortcutLongLabel="@string/sc_de_long">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="com.utrack.app"
+            android:targetClass="com.utrack.app.MainActivity"
+            android:data="com.utrack.app://open/de" />
+    </shortcut>
+    <shortcut
+        android:shortcutId="open_ster"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/sc_ster_short"
+        android:shortcutLongLabel="@string/sc_ster_long">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="com.utrack.app"
+            android:targetClass="com.utrack.app.MainActivity"
+            android:data="com.utrack.app://open/ster" />
+    </shortcut>
+    <shortcut
+        android:shortcutId="open_proc"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/sc_proc_short"
+        android:shortcutLongLabel="@string/sc_proc_long">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="com.utrack.app"
+            android:targetClass="com.utrack.app.MainActivity"
+            android:data="com.utrack.app://open/proc" />
+    </shortcut>
+    <shortcut
+        android:shortcutId="open_plan"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher"
+        android:shortcutShortLabel="@string/sc_plan_short"
+        android:shortcutLongLabel="@string/sc_plan_long">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:targetPackage="com.utrack.app"
+            android:targetClass="com.utrack.app.MainActivity"
+            android:data="com.utrack.app://open/plan" />
+    </shortcut>
+</shortcuts>

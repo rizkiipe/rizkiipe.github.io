@@ -1092,7 +1092,18 @@ const DRIVE_FOLDER_NAME = "Laporan Produksi DE";
 const REWORK_FILE_NAME = "Rework-Tracker.json";
 const REWORK_WORKSHEET_NAME = "Rework-Tracker-Worksheet";
 /* Password untuk membuka Riwayat laporan. Ganti sesuai kebutuhan. */
-const HISTORY_PASSWORD = "de2026";
+/* Password riwayat (hapus/timpa): hanya hash PBKDF2, tidak ada teks password di kode. Ganti lewat tools/buat-hash.html */
+const HIST_ITER = 200000;
+const HIST_SALT = 'e768ff7f70f601bf1f6bdba3419de9d3';
+const HIST_HASH = '00f5d9754843dd599dbfaeae33a05bce73f40084017331cb0e1f9c7fc0e451f5';
+async function histPwOk(pw){
+  if(pw == null || pw === '') return false;
+  try{
+    const key = await crypto.subtle.importKey('raw', new TextEncoder().encode('hist:' + pw), 'PBKDF2', false, ['deriveBits']);
+    const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt: _hex2bytes(HIST_SALT), iterations: HIST_ITER }, key, 256);
+    return Array.from(new Uint8Array(bits)).map(b => b.toString(16).padStart(2, '0')).join('') === HIST_HASH;
+  }catch(e){ return false; }
+}
 
 /* Verifikasi menimpa riwayat: pakai PIN / sidik jari / wajah milik perangkat (WebAuthn / passkey perangkat).
    Pertama kali di tiap perangkat: masukkan password sekali untuk mendaftarkan perangkat, sesudahnya cukup PIN/sidik jari.
@@ -1106,9 +1117,9 @@ async function deviceAuthAvailable(){
       await PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable());
   }catch(e){ return false; }
 }
-function passwordAuth(msg){
+async function passwordAuth(msg){
   const pw = prompt(msg);
-  return pw !== null && pw === HISTORY_PASSWORD;
+  return pw !== null && await histPwOk(pw);
 }
 // Mengembalikan true (lolos), false (gagal/salah), atau null (dibatalkan pengguna)
 async function authorizeOverwrite(what){
@@ -1121,7 +1132,7 @@ async function authorizeOverwrite(what){
   if(!(await deviceAuthAvailable())){
     const pw = prompt(pwMsg);
     if(pw === null) return null;
-    return pw === HISTORY_PASSWORD;
+    return await histPwOk(pw);
   }
   try{
     let saved = null;
@@ -1130,7 +1141,7 @@ async function authorizeOverwrite(what){
       // pendaftaran perangkat (sekali): wajib password dulu, lalu PIN/sidik jari perangkat didaftarkan
       const pw = prompt(`${what}\nPerangkat ini belum terdaftar. Masukkan password sekali untuk mendaftarkan PIN/sidik jari perangkat ini (batalkan untuk membatalkan upload):`);
       if(pw === null) return null;
-      if(pw !== HISTORY_PASSWORD) return false;
+      if(!(await histPwOk(pw))) return false;
       const cred = await navigator.credentials.create({ publicKey: {
         challenge: crypto.getRandomValues(new Uint8Array(32)),
         rp: { name: 'Laporan DE' },
@@ -1153,7 +1164,7 @@ async function authorizeOverwrite(what){
     if(!confirm('Verifikasi PIN/sidik jari perangkat gagal atau dibatalkan.\nGunakan password sebagai gantinya?')) return null;
     const pw = prompt(pwMsg);
     if(pw === null) return null;
-    return pw === HISTORY_PASSWORD;
+    return await histPwOk(pw);
   }
 }
 const DRIVE_SCOPE = "https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.metadata.readonly";
@@ -3214,7 +3225,7 @@ function closeHistory(){ document.getElementById('historyModal').classList.remov
 async function deleteHistoryFile(fileId, fileName){
   const pw = prompt('Masukkan password untuk menghapus Riwayat:');
   if(pw === null) return;
-  if(pw !== HISTORY_PASSWORD){
+  if(!(await histPwOk(pw))){
     showStatus('✕ Password salah', 'error');
     return;
   }
@@ -3234,7 +3245,7 @@ async function deleteHistoryFile(fileId, fileName){
 async function deleteAllHistory(){
   const pw = prompt('Masukkan password untuk menghapus semua Riwayat:');
   if(pw === null) return;
-  if(pw !== HISTORY_PASSWORD){
+  if(!(await histPwOk(pw))){
     showStatus('✕ Password salah', 'error');
     return;
   }
@@ -3359,7 +3370,7 @@ async function deleteSelectedHistory(){
   }
   const pw = prompt('Masukkan password untuk menghapus Riwayat yang ditandai:');
   if(pw === null) return;
-  if(pw !== HISTORY_PASSWORD){
+  if(!(await histPwOk(pw))){
     showStatus('✕ Password salah', 'error');
     return;
   }
@@ -7549,7 +7560,7 @@ async function pmLoadFile(id){
 async function pmDelFile(id, name){
   const pw = prompt('Masukkan password untuk menghapus Riwayat:');
   if(pw === null) return;
-  if(pw !== HISTORY_PASSWORD){ showStatus('✕ Password salah', 'error'); return; }
+  if(!(await histPwOk(pw))){ showStatus('✕ Password salah', 'error'); return; }
   try{
     const folderId = await pmEnsureFolder();
     const txtId = await findFileInFolder(name.replace(/\.json$/, '.txt'), folderId);
@@ -7862,7 +7873,7 @@ const DSP_MON = Object.assign({ july:7, august:8, agu:8, ags:8 }, EFF_MON_IDX);
 // Mode tanpa akses Google: isi URL web app Apps Script (lihat dsp-input-script.gs) + kode rahasia yang sama dengan di skrip.
 // Kalau dikosongkan, aplikasi menulis langsung lewat akun Google yang login (harus punya akses edit).
 const DSP_WRITE_URL = 'https://script.google.com/macros/s/AKfycbybR4hA6fS6A2061QlI4w3VpmPrCbexPLRAOpbEPf4bM0W8n8S8vl4ZsrJbLrM573Cc/exec';
-const DSP_WRITE_TOKEN = 'DE-yBbXAusDHRPY7bcAKPLXnxhp';
+function dspToken(){ try{ return localStorage.getItem('utrack_dsp_token') || ''; }catch(e){ return ''; } }   // diisi di Pengaturan, tidak ditulis di kode
 let dspTarget = null;
 // Buat file DSP 12 bulan lewat skrip (satu bulan per permintaan supaya tidak melewati batas waktu Apps Script; berurutan karena Group diteruskan dari bulan sebelumnya).
 async function dspCreateYear(){
@@ -7975,7 +7986,9 @@ function dspFmRows(rows, fm){
   return out;
 }
 async function dspScript(payload){
-  const r = await fetch(DSP_WRITE_URL, { method: 'POST', body: JSON.stringify(Object.assign({ token: DSP_WRITE_TOKEN }, payload)) });
+  const tk = dspToken();
+  if(!tk) throw new Error('Token skrip DSP belum diisi — buka Pengaturan (ikon pengguna) lalu isi "Token skrip DSP".');
+  const r = await fetch(DSP_WRITE_URL, { method: 'POST', body: JSON.stringify(Object.assign({ token: tk, accessToken: accessToken || '' }, payload)) });
   if(!r.ok) throw new Error('Skrip DSP tidak merespons (HTTP ' + r.status + ')');
   let j; try{ j = await r.json(); }catch(e){ throw new Error('Balasan skrip DSP tidak terbaca — pastikan deployment web app diset "Anyone" dan URL-nya benar.'); }
   return j;
@@ -8857,7 +8870,7 @@ function initNativeShell(){
     capP('App').addListener('backButton', () => {
       const open = document.querySelector('.modal-bg.open');
       if(open){ open.classList.remove('open'); return; }
-      const upd = document.getElementById('updBg') || document.getElementById('setBg') || document.getElementById('bioBg') || document.getElementById('logBg'); if(upd){ upd.remove(); return; }
+      const upd = document.getElementById('updBg') || document.getElementById('setBg') || document.getElementById('bioBg') || document.getElementById('logBg') || document.getElementById('accBg'); if(upd){ upd.remove(); return; }
       if(document.getElementById('loginScreen').classList.contains('show')){ capP('App').exitApp(); return; }
       if(curPage !== 'de'){ showPage('de'); return; }
       const now = Date.now();
@@ -9091,50 +9104,112 @@ async function remApply(ask){
 
 /* --- Pengaturan (ketuk ikon pengguna di pojok atas) --- */
 async function openSettings(){
-  let user = ''; try{ user = localStorage.getItem('utrack_user') || ''; }catch(e){}
-  const bioOk = await bioAvailable(), rem = remGet();
+  let user = ''; try{ user = localStorage.getItem('utrack_who') || localStorage.getItem('utrack_user') || ''; }catch(e){}
+  const bioOk = IS_NATIVE ? await bioAvailable() : false, rem = remGet();
   const time = (i, label) => '<div style="' + ROW + '"><span>' + label + '</span><input type="time" id="remT' + i + '" value="' + escHtml(rem.times[i] || '') + '" style="background:#19233B;border:1px solid var(--line);border-radius:10px;color:var(--text);padding:8px 10px;font:inherit"></div>';
+  const toggle = (id, on, title, sub) => '<label style="' + ROW + '"><span>' + title + (sub ? '<br><small style="color:var(--muted)">' + sub + '</small>' : '') + '</span><input type="checkbox" id="' + id + '" ' + (on ? 'checked' : '') + ' style="width:22px;height:22px;accent-color:#33D8C9"></label>';
+  let body = '';
+  if(IS_NATIVE){
+    body += bioOk
+      ? toggle('setBio', bioEnabled(), 'Kunci app dengan sidik jari / wajah', 'Diminta saat app dibuka dan setelah ditinggal 5 menit')
+        + toggle('setBioOw', bioOverwriteEnabled(), 'Timpa laporan dengan sidik jari / wajah', 'Tanpa password saat laporan yang sama sudah ada')
+      : '<div style="' + ROW + ';color:var(--muted);font-size:13px">Sidik jari / wajah tidak tersedia di HP ini</div>';
+    body += toggle('setRem', rem.on, 'Pengingat simpan laporan', 'Hanya berbunyi bila laporan shift itu belum tersimpan')
+      + '<div id="remBox" style="display:' + (rem.on ? 'block' : 'none') + '">'
+      + time(0, 'Shift 1 — ingatkan pukul') + time(1, 'Shift 2 — ingatkan pukul') + time(2, 'Shift 3 — ingatkan pukul') + '</div>';
+  }
+  body += '<div style="' + ROW + '"><span>Token skrip DSP<br><small style="color:var(--muted)">Disimpan hanya di perangkat ini</small></span>'
+    + '<input id="setDsp" type="password" autocomplete="off" placeholder="' + (dspToken() ? 'tersimpan' : 'belum diisi') + '" style="width:46%;background:#19233B;border:1px solid var(--line);border-radius:10px;color:var(--text);padding:9px 10px;font:inherit"></div>';
+  const bt = 'class="pbtn btn-secondary" style="flex:1 1 40%;border:1px solid var(--line)"';
   const el = mkSheet('setBg',
     '<div style="' + SHEET_TITLE + '">Pengaturan</div>'
     + '<div style="color:var(--muted);font-size:13px;margin:4px 0 8px">' + escHtml(user || 'Admin') + ' · U-Track v' + escHtml(APP_VERSION) + '</div>'
-    + (bioOk
-        ? '<label style="' + ROW + '"><span>Kunci app dengan sidik jari / wajah<br><small style="color:var(--muted)">Diminta saat app dibuka dan setelah ditinggal 5 menit</small></span><input type="checkbox" id="setBio" ' + (bioEnabled() ? 'checked' : '') + ' style="width:22px;height:22px;accent-color:#33D8C9"></label>'
-          + '<label style="' + ROW + '"><span>Timpa laporan dengan sidik jari / wajah<br><small style="color:var(--muted)">Tanpa password saat laporan yang sama sudah ada</small></span><input type="checkbox" id="setBioOw" ' + (bioOverwriteEnabled() ? 'checked' : '') + ' style="width:22px;height:22px;accent-color:#33D8C9"></label>'
-        : '<div style="' + ROW + ';color:var(--muted);font-size:13px">Sidik jari / wajah tidak tersedia di HP ini</div>')
-    + '<label style="' + ROW + '"><span>Pengingat simpan laporan<br><small style="color:var(--muted)">Hanya berbunyi bila laporan shift itu belum tersimpan</small></span><input type="checkbox" id="setRem" ' + (rem.on ? 'checked' : '') + ' style="width:22px;height:22px;accent-color:#33D8C9"></label>'
-    + '<div id="remBox" style="display:' + (rem.on ? 'block' : 'none') + '">'
-    + time(0, 'Shift 1 — ingatkan pukul') + time(1, 'Shift 2 — ingatkan pukul') + time(2, 'Shift 3 — ingatkan pukul') + '</div>'
-    + '<div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:16px"><button id="setUpd" class="pbtn btn-secondary" style="flex:1 1 40%;border:1px solid var(--line)">Cek update</button><button id="setLog" class="pbtn btn-secondary" style="flex:1 1 40%;border:1px solid var(--line)">Log error</button><button id="setClose" class="pbtn btn-primary" style="flex:1 1 100%">Tutup</button></div>');
+    + body
+    + '<div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:16px">'
+    + (IS_NATIVE ? '<button id="setUpd" ' + bt + '>Cek update</button>' : '')
+    + '<button id="setAcc" ' + bt + '>Cek akses Drive</button><button id="setLog" ' + bt + '>Log error</button>'
+    + '<button id="setClose" class="pbtn btn-primary" style="flex:1 1 100%">Tutup</button></div>');
   const q = s => el.querySelector(s);
-  if(bioOk) q('#setBio').onchange = async ev => {
-    if(ev.target.checked){
-      if(await bioAuth('Aktifkan sidik jari / wajah', 'Konfirmasi dengan sidik jari atau wajah')){ try{ localStorage.setItem(BIO_KEY, '1'); }catch(e){} showStatus('✓ Sidik jari / wajah diaktifkan', 'success'); }
-      else ev.target.checked = false;
-    }else{ try{ localStorage.setItem(BIO_KEY, '0'); }catch(e){} showStatus('Sidik jari / wajah dimatikan', 'info'); }
+  q('#setDsp').onchange = () => {
+    const v = q('#setDsp').value.trim();
+    if(!v) return;
+    try{ localStorage.setItem('utrack_dsp_token', v); }catch(e){}
+    q('#setDsp').value = ''; q('#setDsp').placeholder = 'tersimpan';
+    showStatus('✓ Token skrip DSP disimpan di perangkat ini', 'success');
   };
-  if(bioOk) q('#setBioOw').onchange = async ev => {
-    if(ev.target.checked){
-      if(await bioAuth('Timpa laporan dengan sidik jari / wajah', 'Konfirmasi dengan sidik jari atau wajah')){ try{ localStorage.setItem(BIO_OW_KEY, '1'); }catch(e){} showStatus('✓ Timpa laporan memakai sidik jari / wajah', 'success'); }
-      else ev.target.checked = false;
-    }else{ try{ localStorage.setItem(BIO_OW_KEY, '0'); }catch(e){} showStatus('Timpa laporan kembali memakai password', 'info'); }
-  };
-  const saveRem = async (askPerm) => {
-    const o = { on: q('#setRem').checked, times: [0, 1, 2].map(i => q('#remT' + i).value || ['13:30', '21:30', '05:30'][i]) };
-    remSet(o);
-    q('#remBox').style.display = o.on ? 'block' : 'none';
-    try{
-      const ok = await remApply(askPerm);
-      if(o.on && ok) showStatus('✓ Pengingat aktif', 'success');
-      if(o.on && !ok){ q('#setRem').checked = false; o.on = false; remSet(o); q('#remBox').style.display = 'none'; }
-    }catch(e){ showStatus('✕ Pengingat gagal diatur: ' + ((e && e.message) || e), 'error'); }
-  };
-  q('#setRem').onchange = () => saveRem(true);
-  [0, 1, 2].forEach(i => { q('#remT' + i).onchange = () => saveRem(true); });
-  q('#setUpd').onclick = () => { el.remove(); nativeCheckUpdate(true); };
+  if(IS_NATIVE){
+    if(bioOk){
+      q('#setBio').onchange = async ev => {
+        if(ev.target.checked){
+          if(await bioAuth('Aktifkan sidik jari / wajah', 'Konfirmasi dengan sidik jari atau wajah')){ try{ localStorage.setItem(BIO_KEY, '1'); }catch(e){} showStatus('✓ Sidik jari / wajah diaktifkan', 'success'); }
+          else ev.target.checked = false;
+        }else{ try{ localStorage.setItem(BIO_KEY, '0'); }catch(e){} showStatus('Sidik jari / wajah dimatikan', 'info'); }
+      };
+      q('#setBioOw').onchange = async ev => {
+        if(ev.target.checked){
+          if(await bioAuth('Timpa laporan dengan sidik jari / wajah', 'Konfirmasi dengan sidik jari atau wajah')){ try{ localStorage.setItem(BIO_OW_KEY, '1'); }catch(e){} showStatus('✓ Timpa laporan memakai sidik jari / wajah', 'success'); }
+          else ev.target.checked = false;
+        }else{ try{ localStorage.setItem(BIO_OW_KEY, '0'); }catch(e){} showStatus('Timpa laporan kembali memakai password', 'info'); }
+      };
+    }
+    const saveRem = async (askPerm) => {
+      const o = { on: q('#setRem').checked, times: [0, 1, 2].map(i => q('#remT' + i).value || ['13:30', '21:30', '05:30'][i]) };
+      remSet(o);
+      q('#remBox').style.display = o.on ? 'block' : 'none';
+      try{
+        const ok = await remApply(askPerm);
+        if(o.on && ok) showStatus('✓ Pengingat aktif', 'success');
+        if(o.on && !ok){ q('#setRem').checked = false; o.on = false; remSet(o); q('#remBox').style.display = 'none'; }
+      }catch(e){ showStatus('✕ Pengingat gagal diatur: ' + ((e && e.message) || e), 'error'); }
+    };
+    q('#setRem').onchange = () => saveRem(true);
+    [0, 1, 2].forEach(i => { q('#remT' + i).onchange = () => saveRem(true); });
+    q('#setUpd').onclick = () => { el.remove(); nativeCheckUpdate(true); };
+  }
+  q('#setAcc').onclick = () => { el.remove(); openAccessCheck(); };
   q('#setLog').onclick = () => { el.remove(); openErrLog(); };
   q('#setClose').onclick = () => el.remove();
 }
 
+/* --- Pemeriksa akses Drive: siapa saja yang bisa membuka file/folder yang dipakai app --- */
+async function openAccessCheck(){
+  const el = mkSheet('accBg',
+    '<div style="' + SHEET_TITLE + '">Akses file Drive</div>'
+    + '<div id="accBody" style="font-size:13px;color:var(--muted);margin-top:10px">Memeriksa…</div>'
+    + '<button id="accClose" class="pbtn btn-primary" style="width:100%;margin-top:14px">Tutup</button>');
+  el.querySelector('#accClose').onclick = () => el.remove();
+  const body = el.querySelector('#accBody');
+  const targets = [];
+  try{ targets.push({ n: 'Folder laporan Filling-DE', id: await ensureFolder() }); }catch(e){}
+  try{ targets.push({ n: 'Folder laporan Proses', id: await pmEnsureFolder() }); }catch(e){}
+  [['Rework Tracker', RW_FILE_ID], ['Sheet Planning', PLAN_FILES[2026]],
+   ['Sheet Downtime (Group B)', SHEET_SYNC.spreadsheetId], ['Sheet Downtime (Group A)', SHEET_SYNC_A.spreadsheetId], ['Sheet Downtime (Group C)', SHEET_SYNC_C.spreadsheetId]]
+    .forEach(x => { if(x[1]) targets.push({ n: x[0], id: x[1] }); });
+  const card = (name, inner) => '<div style="border:1px solid var(--line);border-radius:12px;padding:10px 12px;margin-bottom:8px"><b style="color:var(--text)">' + escHtml(name) + '</b><div style="margin-top:4px">' + inner + '</div></div>';
+  let warn = 0, checked = 0, html = '';
+  for(const t of targets){
+    let d = null, err = '';
+    try{
+      const r = await driveFetch('https://www.googleapis.com/drive/v3/files/' + encodeURIComponent(t.id) + '?supportsAllDrives=true&fields=' + encodeURIComponent('name,shared,owners(emailAddress,displayName),permissions(type,role,emailAddress,displayName)'));
+      if(r.ok) d = await r.json(); else err = 'HTTP ' + r.status;
+    }catch(e){ err = (e && e.message) || String(e); }
+    if(!d){ html += card(t.n, 'Tidak bisa diperiksa (' + escHtml(err) + '). Biasanya karena akun ini bukan pemilik/editor, atau file belum ada.'); continue; }
+    checked++;
+    const perms = d.permissions || [];
+    const open = perms.filter(p => p.type === 'anyone' || p.type === 'domain');
+    if(open.length) warn++;
+    const owner = ((d.owners || [])[0] || {}).emailAddress || '-';
+    const people = perms.filter(p => p.type === 'user' || p.type === 'group').map(p => escHtml(p.emailAddress || p.displayName || '?') + ' (' + escHtml(p.role) + ')');
+    html += card(d.name || t.n,
+      'Pemilik: ' + escHtml(owner) + '<br>'
+      + (perms.length ? 'Akses: ' + (people.join(', ') || '—') : 'Daftar akses tidak terlihat (hanya pemilik/editor yang bisa melihat). ' + (d.shared ? 'File ini dibagikan.' : 'File ini tidak dibagikan.'))
+      + (open.length ? '<br><b style="color:#F5B34C">⚠ ' + open.map(p => p.type === 'anyone' ? 'Siapa saja dengan link (' + escHtml(p.role) + ')' : 'Seluruh domain (' + escHtml(p.role) + ')').join('; ') + '</b>' : ''));
+  }
+  body.innerHTML = (warn
+      ? '<div style="color:#F5B34C;margin-bottom:8px">⚠ ' + warn + ' file terbuka untuk umum. Batasi di Drive: Bagikan → Akses umum → Dibatasi.</div>'
+      : '<div style="color:var(--cyan);margin-bottom:8px">' + (checked ? '✓ Tidak ada file (dari ' + checked + ' yang bisa diperiksa) yang terbuka untuk umum.' : 'Belum ada file yang bisa diperiksa.') + '</div>')
+    + html;
+}
 
 /* --- Log error (Pengaturan -> Log error) --- */
 const LOG_KEY = 'utrack_errlog';
@@ -9154,15 +9229,24 @@ function openErrLog(){
     + '<div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:14px"><button id="logShare" class="pbtn btn-primary" style="flex:1 1 100%">Bagikan log</button><button id="logClear" class="pbtn btn-secondary" style="flex:1 1 40%;border:1px solid var(--line)">Hapus log</button><button id="logClose" class="pbtn btn-secondary" style="flex:1 1 40%;border:1px solid var(--line)">Tutup</button></div>');
   el.querySelector('#logShare').onclick = () => {
     const url = URL.createObjectURL(new Blob([errLogText()], { type: 'text/plain' }));
-    nativeSaveBlobUrl(url, 'U-Track-log-' + new Date().toISOString().slice(0, 10) + '.txt');
+    const a = document.createElement('a'); a.href = url; a.download = 'U-Track-log-' + new Date().toISOString().slice(0, 10) + '.txt';
+    document.body.appendChild(a); a.click(); a.remove();
   };
   el.querySelector('#logClear').onclick = () => { try{ localStorage.removeItem(LOG_KEY); }catch(e){} el.remove(); showStatus('Log dihapus', 'info'); };
   el.querySelector('#logClose').onclick = () => el.remove();
 }
 
+function openFromUrl(u){
+  const m = /^com\.utrack\.app:\/\/open\/([a-z]+)/.exec(String(u || ''));
+  if(!m || ['de', 'ster', 'proc', 'plan'].indexOf(m[1]) < 0) return false;
+  showPage(m[1]);
+  return true;
+}
+(function(){ const av = document.querySelector('.avatar'); if(av){ av.style.cursor = 'pointer'; av.addEventListener('click', openSettings); } })();
+
 function initExtras(){
-  const av = document.querySelector('.avatar');
-  if(av){ av.style.cursor = 'pointer'; av.addEventListener('click', openSettings); }
+  capP('App').addListener('appUrlOpen', ev => { openFromUrl(ev && ev.url); });
+  capP('App').getLaunchUrl().then(r => { if(r && r.url) setTimeout(() => openFromUrl(r.url), 700); }).catch(() => {});
   let hiddenAt = 0;
   capP('App').addListener('appStateChange', st => {
     if(!st.isActive){ hiddenAt = Date.now(); draftSave(); return; }
@@ -9307,7 +9391,7 @@ Object.assign(window, {
 <div id="appVersion" style="text-align:center;font:500 11px 'IBM Plex Mono',monospace;color:var(--muted);opacity:.75;padding:14px 0 4px"></div>
 <script>
 /* APP_VERSION diisi otomatis oleh workflow rilis (jangan diubah manual). */
-var APP_VERSION = '1.4.2';
+var APP_VERSION = '1.0.0';
 (function(){
   var el = document.getElementById('appVersion');
   if(el) el.textContent = 'U-Track v' + APP_VERSION + (window.IS_NATIVE ? '' : ' · Web');
