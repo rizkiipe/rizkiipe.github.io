@@ -129,6 +129,8 @@ Merangkum perubahan setelah 1.4.4 (termasuk 1.4.5 sampai 1.4.7).
 - **Dihitung selama satu week**: batch yang dimasak dijumlah dari form ini, log di HP ini, dan semua laporan Proses lain di week yang sama yang tersimpan di Drive (termasuk dari HP lain). Bila laporan yang sama ada di HP dan Drive, dipakai angka terbesar (tidak dijumlah dobel). Data Drive disegarkan paling sering sekali per 5 menit, juga saat tanggal/shift/group/week berubah dan setelah laporan tersimpan.
 - **Semua proses ikut** (milk, juice, tea, dll), bukan hanya Proses 1, 2, 10, 11. Total Produksi (liter) di teks laporan tetap hanya menghitung proses milk.
 - Kode Masak yang tidak cocok dengan planning ditandai peringatan di kartu planning.
+- **Dashboard Proses -> kartu "Sisa masakan"**: menampilkan sisa batch yang harus dimasak untuk week planning terpilih, **disatukan per kode tanpa angka ukuran** (CHM 125 + CHM 1000 = CHM). Tiap kode menampilkan bar progres, "dimasak X dari Y batch", dan sisa (atau Done), plus total sisa semua kode. Angka aktual selama satu week dari semua proses (form Entry + input Dashboard + laporan Drive). Tombol **Muat planning & Drive** memperbarui data; kartu juga dimuat otomatis saat Dashboard dibuka (bila sudah login).
+- **Batas week diubah menjadi Minggu-Sabtu** (Week 48 2026 = 22-28 Nov). Sebelumnya Sabtu-Jumat, sehingga hari Sabtu terhitung masuk week berikutnya. Berlaku untuk nomor week otomatis di Entry dan untuk penghitungan batch yang sudah dimasak.
 - Catatan: laporan shift sebelumnya baru ikut terhitung bila sudah tersimpan di Drive (atau sudah diinput ke Dashboard di HP yang sama). FM/batch (L) tidak terisi otomatis untuk nama produk dari sheet; isi sekali per produk dan akan diingat.
 
 ## Keamanan (1.4.3)
