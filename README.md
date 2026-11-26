@@ -36,7 +36,7 @@ Naikkan nomor versi setiap rilis (1.0.1, 1.0.2, 1.1.0, ...). Nomor harus selalu 
 
 ## Fitur 1.1
 - **Batasan akun Google**: daftar `AUTH_GOOGLE_ALLOWED` di `www/index.html` berisi hash email yang boleh masuk lewat tombol Google (sudah diisi 2 email pemilik). Tambah email lain lewat `tools/buat-hash.html` bagian bawah. Login username/password tetap sebagai cadangan.
-- **Draf otomatis**: isian Entry disimpan di HP tiap beberapa detik (tanpa foto) dan dipulihkan bila app tertutup (maks. 14 jam). Dihapus setelah berhasil tersimpan di Drive.
+- **Draf otomatis**: isian Entry disimpan di HP tiap beberapa detik (tanpa foto) dan dipulihkan bila app tertutup (batas waktu dan pilihan halaman kosong: lihat Perubahan 1.4.4). Dihapus setelah berhasil tersimpan di Drive.
 - **Antrean offline**: bila Save gagal karena tidak ada koneksi, laporan ditandai "Tertunda" dan dikirim otomatis saat online/app dibuka lagi (maks. 3 percobaan).
 - **Sidik jari / wajah** (Pengaturan, ketuk ikon pengguna di pojok atas): dua sakelar terpisah, keduanya mati secara bawaan. **Kunci app** meminta sidik jari/wajah saat app dibuka dan setelah ditinggal 5 menit; **Timpa laporan** memakai sidik jari/wajah (tanpa password) saat laporan yang sama sudah ada.
 - **Pengingat shift**: notifikasi harian per shift di Pengaturan; jam bisa diubah (bawaan 13:30, 21:30, 05:30).
@@ -86,6 +86,28 @@ Setiap rilis, APK otomatis dikirim ke grup itu. Langkah ini dilewati bila secret
 ## Fitur 1.4.3
 - **Pintasan ikon app**: tekan lama ikon U-Track untuk langsung ke Filling-DE, Sterilizer, Proses, atau Planning.
 - **Pemeriksa akses Drive** (ikon pengguna -> Pengaturan -> Cek akses Drive): menampilkan pemilik dan siapa saja yang punya akses ke folder laporan, Rework Tracker, dan sheet yang dipakai app, dengan peringatan bila ada yang terbuka untuk umum ("siapa saja dengan link").
+
+## Perubahan 1.4.4
+
+**Sinkron Kode Box antar line (produk ke-2, ke-3, dst)**
+- PB, tanggal Lot (L-DD.MM.YY), Expire, dan huruf batch hanya disinkronkan antar mesin (line) yang **berbeda** dengan sterilizer sama, SKU sama, **dan urutan produk sama**: produk ke-2 dengan produk ke-2 line lain, ke-3 dengan ke-3, dan seterusnya.
+- Produk sebelumnya di mesin yang sama tidak ikut disinkronkan (ganti produk = batch baru). Produk ke-2 juga tidak lagi tertimpa Lot/PB milik produk ke-1 batch lama di line lain.
+- Mengganti Tipe Sterilizer di kartu utama kini juga menarik PB dan Lot untuk produk lanjutan di mesin itu.
+
+**Kode Box ikut shift sebelumnya**
+- Acuannya adalah **produk terakhir** yang diinput shift sebelumnya di mesin yang sama (produk ke-2/ke-3 bila ada ganti produk), bukan produk ke-1. Kode Box (PB, Lot, Expire, huruf batch) ikut hanya bila SKU produk terakhir itu sama dengan SKU di shift sekarang.
+- Tidak ikut bila SKU produk terakhir berbeda, atau produk terakhir sudah ada finish. Bila produk terakhir belum punya Kode Box, pencarian mundur ke shift sebelumnya lagi (maks. 3 shift). Status "Jalan Baru" dan Kode Box yang diketik manual tidak ditimpa.
+- **Shift 3 -> Shift 1**: Shift 1 mengambil **Kode Box Jam 00:00** Shift 3 bila SKU sama. Tidak ikut bila ada finish produk di atas jam 00:00 (keterangan/kategori downtime atau Info Start/Finish berjam 00:00-11:59; jam tidak terbaca dianggap di atas 00:00), atau akhir Shift 3 ada kata **"CIP FC"** (downtime terakhir menurut waktu, atau Info Start/Finish), karena produksi sudah berhenti. Finish sebelum jam 00:00 tidak menghalangi.
+
+**Kirim gambar laporan ke WhatsApp**
+- Tombol Kirim ke WhatsApp hanya mengirim gambar yang sedang dipilih (tab **Laporan** atau tab **Lampiran foto**), tidak lagi dua-duanya. Teks tombol dan nama file mengikuti pilihan itu (memuat tanggal, shift, lini, dan kelompok DE).
+- Resolusi gambar laporan dan lampiran naik dari 2x ke 3x (lebar 3072 px), otomatis turun minimal ke 2x bila gambar sangat panjang agar memori HP aman.
+- Catatan: WhatsApp tetap mengompres gambar yang dikirim sebagai foto. Agar benar-benar tanpa kompresi, kirim lewat **📎 -> Dokumen** setelah Unduh .png.
+
+**Draf saat app dibuka lagi**
+- Draf yang terakhir diubah **2 jam atau kurang**: muncul pilihan **Lanjutkan draf** atau **Halaman kosong (laporan baru)**. Dialog harus dijawab (tidak bisa ditutup dengan tap di luar) dan menunggu layar kunci tertutup. Memilih halaman kosong menghapus draf itu.
+- Draf **lebih dari 2 jam**: langsung terbuka laporan baru dan draf lama dihapus (sebelumnya dipulihkan sampai 14 jam).
+- Pengecualian: laporan yang masih **antre terkirim (offline)** dipulihkan otomatis tanpa bertanya selama **6 jam** terakhir, supaya data yang belum terkirim ke Drive tidak hilang.
 
 ## Keamanan (1.4.3)
 Kode aplikasi dan situs bersifat publik, jadi tidak ada rahasia yang boleh tertulis di dalamnya.
