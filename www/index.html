@@ -1646,9 +1646,20 @@ const setBoxPB = (box, pb) => /PB\s*-?\s*\d+/i.test(box) ? box.replace(/PB\s*-?\
 
 // Aturan: DE yang sterilizer-nya SAMA dan SKU-nya SAMA pasti satu batch -> PB, tanggal Lot (L-DD.MM.YY),
 // kode huruf batch (A/B/C...), dan Expire pasti sama. No. Mc (nomor DE) tetap milik masing-masing DE.
+// Urutan produk dalam satu mesin: kartu utama = produk ke-1, produk lanjutan (isSeg) = ke-2, ke-3, dst (sesuai urutan tampil di kartu).
+const prodOrdinal = e => {
+  if(!e.isSeg || !deEntries.some(x => x.localId === e.segOf && x !== e)) return 1;
+  let n = 2;
+  for(const x of deEntries){ if(x === e) break; if(x.segOf === e.segOf) n++; }
+  return n;
+};
+// Sinkron hanya antar mesin (line) BERBEDA dengan sterilizer + SKU sama DAN urutan produk sama
+// (produk ke-2 <-> produk ke-2 line lain, ke-3 <-> ke-3, dst). Produk lain di mesin yang sama (produk sebelumnya) tidak ikut disinkronkan.
 const sameSterSku = (a, b) => {
   const st = normSter(a.machineType);
-  return !!st && st === normSter(b.machineType) && !!a.productType && a.productType === b.productType;
+  return !!st && st === normSter(b.machineType) && !!a.productType && a.productType === b.productType
+    && String(a.deNumber || '') !== String(b.deNumber || '')
+    && prodOrdinal(a) === prodOrdinal(b);
 };
 
 // Ambil bagian Lot yang harus seragam dari teks Kode Box: Expire (sebelum "L-"), tanggal L-, huruf batch.
@@ -1748,6 +1759,24 @@ function shiftBack(dateStr, shift){
   return { date: isoDateStr(d), shift: 'Shift 3' };
 }
 // "Finish produk" = Info Start/Finish atau keterangan/kategori downtime mengandung kata finish
+// Shift 3 -> Shift 1: jam >= 12 = sebelum 00:00, jam < 12 = sesudah 00:00. Urutan waktu dalam shift 3: jam <12 dianggap lebih akhir (+24).
+const _hhmm = t => { const m = String(t || '').match(/(\d{1,2})\s*[:.]\s*(\d{2})/); return m ? { h: +m[1], m: +m[2] } : null; };
+const _s3Key = t => { const x = _hhmm(t); return x ? ((x.h < 12 ? x.h + 24 : x.h) * 60 + x.m) : -1; };
+// Finish produk di atas jam 00:00 (keterangan/kategori downtime, atau Info Start/Finish). Tanpa jam yang terbaca = dianggap di atas jam 00 (aman: tidak ikut).
+const deHasFinishAfterMidnight = e => {
+  const afterMid = t => { const x = _hhmm(t); return !x || x.h < 12; };
+  if(/finish/i.test(String(e.finishInfo || '')) && afterMid(e.finishInfo)) return true;
+  return (e.problems || []).some(p => /finish/i.test(`${p.desc || ''} ${p.kategori || ''}`) && afterMid(p.start));
+};
+// Akhir Shift 3 ada kata "CIP FC" (downtime terakhir secara waktu, atau Info Start/Finish) = produksi berhenti, tidak lanjut ke Shift 1.
+const deEndsWithCipFC = e => {
+  const re = /cip[\s\-_.]*fc/i;
+  if(re.test(String(e.finishInfo || ''))) return true;
+  const ps = (e.problems || []).filter(p => String(p.start || '').trim() || String(p.desc || '').trim());
+  if(!ps.length) return false;
+  const last = ps.map((p, i) => ({ p, i })).sort((a, b) => (_s3Key(a.p.start) - _s3Key(b.p.start)) || (a.i - b.i)).pop().p;
+  return re.test(`${last.desc || ''} ${last.kategori || ''}`);
+};
 const deHasFinish = e => /finish/i.test(String(e.finishInfo || '')) || (e.problems || []).some(p => /finish/i.test(`${p.desc || ''} ${p.kategori || ''}`));
 
 async function loadReportsForDate(dateStr){
@@ -1768,7 +1797,7 @@ async function loadReportsForDate(dateStr){
   return list;
 }
 
-// Cari Kode Box shift sebelumnya untuk DE + SKU ini. Mundur maksimal 3 shift, berhenti di shift pertama yang memuat DE ini.
+// Cari Kode Box shift sebelumnya untuk DE + SKU ini. Acuan = produk TERAKHIR yang diinput shift sebelumnya; ikut hanya bila SKU-nya sama dengan SKU sekarang. Mundur maksimal 3 shift, berhenti di shift pertama yang memuat DE ini.
 // Return null (tidak ketemu), { follow:false, ... } (ketemu tapi SKU beda / sudah finish), atau { follow:true, box, from }.
 async function findPrevShiftBox(de){
   if(!driveConfigured || !de.deNumber || !de.productType) return null;
@@ -1785,13 +1814,18 @@ async function findPrevShiftBox(de){
       for(const rep of reports){
         const mine = rep.deEntries.filter(e => String(e.deNumber) === String(de.deNumber));
         if(!mine.length) continue;
-        const same = mine.filter(e => e.productType === de.productType);
-        if(!same.length) return { follow: false, reason: 'sku', from: cur };
-        if(same.some(deHasFinish)) return { follow: false, reason: 'finish', from: cur };
-        const withBox = same.filter(e => String(e.boxCode || '').trim() || String(e.boxCode2 || '').trim())
-                            .sort((a, b) => (b.fillOrder || 0) - (a.fillOrder || 0));
-        if(!withBox.length) continue;
-        const e = withBox[0];
+        // Yang jadi acuan = produk TERAKHIR yang diinput shift sebelumnya di mesin ini (produk ke-2/ke-3/dst bila ada ganti produk).
+        // Urutan: fillOrder lalu urutan input (produk lanjutan ditaruh setelah kartu induknya).
+        const ordered = mine.map((e, i) => ({ e, i })).sort((a, b) => ((a.e.fillOrder || 0) - (b.e.fillOrder || 0)) || (a.i - b.i)).map(x => x.e);
+        const last = ordered[ordered.length - 1];
+        if(last.productType !== de.productType) return { follow: false, reason: 'sku', from: cur };   // produk terakhir beda SKU -> tidak ikut
+        if(cur.shift === 'Shift 3'){
+          // Shift 1 mengikuti Kode Box Jam 00:00 Shift 3, kecuali: finish produk di atas jam 00:00, atau akhir Shift 3 ada "CIP FC" (produksi sudah berhenti)
+          if(deHasFinishAfterMidnight(last)) return { follow: false, reason: 'finish', from: cur };
+          if(deEndsWithCipFC(last)) return { follow: false, reason: 'cipfc', from: cur };
+        }else if(deHasFinish(last)) return { follow: false, reason: 'finish', from: cur };
+        if(!(String(last.boxCode || '').trim() || String(last.boxCode2 || '').trim())) continue;   // produk terakhir belum ada Kode Box -> cari shift sebelumnya lagi
+        const e = last;
         const box = (cur.shift === 'Shift 3' && String(e.boxCode2 || '').trim()) ? e.boxCode2 : (String(e.boxCode || '').trim() ? e.boxCode : e.boxCode2);
         return { follow: true, box, from: cur };
       }
@@ -1844,6 +1878,7 @@ function updateMachineType(localId, value){
   de.machineType = value;
   syncSegsOfParent(de);
   pullPBForEntry(de);
+  deEntries.forEach(sg => { if(sg.segOf === de.localId) pullPBForEntry(sg); });
   render();
 }
 
@@ -4667,9 +4702,11 @@ async function buildReportImageBlob(part){
   H += 150;
 
   // ---- draw ----
-  const S = 2, cv = document.createElement('canvas');
-  cv.width = W*S; cv.height = H*S;
+  // HD: skala 3x (lebar 3072 px) supaya tetap tajam di WhatsApp; otomatis turun (minimal 2x) kalau gambar sangat panjang agar HP tidak kehabisan memori
+  const S = Math.max(2, Math.min(3, Math.sqrt(24e6 / (W * H)))), cv = document.createElement('canvas');
+  cv.width = Math.round(W*S); cv.height = Math.round(H*S);
   const ctx = cv.getContext('2d');
+  ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
   ctx.scale(S, S); ctx.textBaseline = 'middle';
   ctx.fillStyle = '#EDF5FE'; ctx.fillRect(0, 0, W, H);
 
@@ -4939,6 +4976,7 @@ function setImagePart(key){
   document.querySelectorAll('#imgTabs button').forEach(b => b.classList.toggle('on', b.dataset.part === key));
   document.getElementById('btnCopyImg').textContent = (reportParts.attach ? (key === 'attach' ? '📋 Salin Lampiran' : '📋 Salin Laporan') : '📋 Salin Gambar');
   document.getElementById('btnDlPng').textContent = (reportParts.attach ? (key === 'attach' ? '⬇ Unduh lampiran .png' : '⬇ Unduh laporan .png') : '⬇ Unduh .png');
+  document.getElementById('btnWaImg').textContent = (reportParts.attach ? (key === 'attach' ? '🟢 Kirim Lampiran ke WhatsApp' : '🟢 Kirim Laporan ke WhatsApp') : '🟢 Kirim ke WhatsApp');
 }
 
 function closeImageModal(){ document.getElementById('imageModalBg').classList.remove('open'); }
@@ -8934,15 +8972,58 @@ function draftSave(){
   }catch(e){}
 }
 function draftClear(){ try{ localStorage.removeItem(DRAFT_KEY); }catch(e){} _draftLast = ''; }
+const DRAFT_MAX_MS = 2 * 3600 * 1000;          // draf hanya boleh dimuat maksimal 2 jam sejak perubahan terakhir
+const DRAFT_PENDING_MAX_MS = 6 * 3600 * 1000;   // khusus laporan yang masih antre terkirim (offline): tetap dipulihkan otomatis supaya tidak hilang
+function draftAgeText(ms){
+  const m = Math.max(1, Math.round(ms / 60000));
+  return m < 60 ? m + ' menit lalu' : Math.floor(m / 60) + ' jam' + (m % 60 ? ' ' + (m % 60) + ' menit' : '') + ' lalu';
+}
+function draftAsk(o){
+  const age = Date.now() - o.at, d = o.data || {}, meta = d.meta || {};
+  const nDe = new Set((d.deEntries || []).map(e => String(e.deNumber || '').trim()).filter(Boolean)).size;
+  const info = [meta.tanggal, meta.shift, nDe ? nDe + ' mesin DE' : ''].filter(Boolean).join(' · ');
+  const bg = document.createElement('div'); bg.id = 'draftAskBg';
+  bg.style.cssText = 'position:fixed;inset:0;background:rgba(4,7,14,.85);z-index:300;display:flex;align-items:flex-end;justify-content:center';   // tidak bisa ditutup dengan tap di luar: wajib pilih
+  bg.innerHTML = '<div style="width:100%;max-width:520px;background:#131C30;border-radius:24px 24px 0 0;padding:22px 20px calc(20px + var(--sab));border-top:1px solid var(--line)">'
+    + '<div style="' + SHEET_TITLE + '">Ada draf laporan yang belum disimpan</div>'
+    + '<div style="color:var(--muted);font-size:13px;margin:6px 0 16px">Terakhir diubah ' + draftAgeText(age) + (info ? '<br>' + escHtml(info) : '') + '</div>'
+    + '<button type="button" id="draftAskLoad" class="btn-primary" style="width:100%;padding:14px;border-radius:12px;margin-bottom:10px;cursor:pointer">↺ Lanjutkan draf</button>'
+    + '<button type="button" id="draftAskNew" class="btn-secondary" style="width:100%;padding:14px;border-radius:12px;cursor:pointer">📄 Halaman kosong (laporan baru)</button>'
+    + '</div>';
+  document.body.appendChild(bg);
+  document.getElementById('draftAskLoad').onclick = () => {
+    bg.remove();
+    try{ populateFromData(o.data); showStatus('↺ Draf dipulihkan (' + draftAgeText(Date.now() - o.at) + ')', 'info'); }catch(e){ console.error('draft', e); }
+  };
+  document.getElementById('draftAskNew').onclick = () => { bg.remove(); draftClear(); showStatus('📄 Laporan baru dibuka', 'info'); };
+}
 function draftRestoreIfEmpty(){
   try{
     const raw = localStorage.getItem(DRAFT_KEY); if(!raw) return;
     const o = JSON.parse(raw);
-    if(!o || !o.data || Date.now() - o.at > 14 * 3600 * 1000) return;
+    if(!o || !o.data || !o.at){ draftClear(); return; }
     if(deEntries.some(e => String(e.deNumber || '').trim())) return;
     if(!(o.data.deEntries || []).some(e => String(e.deNumber || '').trim())) return;
-    populateFromData(o.data);
-    showStatus('↺ Draf dipulihkan (' + Math.max(1, Math.round((Date.now() - o.at) / 60000)) + ' menit lalu)', 'info');
+    const age = Date.now() - o.at;
+    // Laporan yang masih antre terkirim (offline) dipulihkan otomatis, supaya data yang belum terkirim tidak hilang
+    if(pendExists('de') && age <= DRAFT_PENDING_MAX_MS){
+      populateFromData(o.data);
+      showStatus('↺ Draf dipulihkan (' + draftAgeText(age) + ')', 'info');
+      return;
+    }
+    if(age > DRAFT_MAX_MS){   // lebih dari 2 jam: otomatis laporan baru
+      draftClear();
+      showStatus('📄 Draf lebih dari 2 jam — laporan baru dibuka', 'info');
+      return;
+    }
+    // <= 2 jam: pilih halaman kosong atau muat draf (tunggu layar login tertutup dulu)
+    const tryAsk = () => {
+      if(document.getElementById('draftAskBg')) return;
+      if(deEntries.some(e => String(e.deNumber || '').trim())) return;   // sudah mulai mengisi
+      if(document.getElementById('loginScreen').classList.contains('show')){ setTimeout(tryAsk, 600); return; }
+      draftAsk(o);
+    };
+    tryAsk();
   }catch(e){ console.error('draft', e); }
 }
 /* Antrean offline per halaman: de = Filling-DE, pm = Proses, rw = Rework Tracker */
@@ -9316,13 +9397,14 @@ async function shareWA(text, files){
 }
 function shareTextWA(){ shareWA(document.getElementById('outputText').textContent, []); }
 function shareImageWA(){
+  // Kirim HANYA gambar yang sedang tampil/dipilih (tab "Laporan" atau tab "Lampiran foto"), tidak dua-duanya sekaligus.
   const meta = collectData().meta;
-  const bothBtn = document.getElementById('btnDlBoth');
-  const keys = (bothBtn && bothBtn.style.display !== 'none') ? ['report', 'attach'] : [activeReportPart];
-  const files = keys.filter(k => reportParts[k] && reportParts[k].blob)
-    .map(k => ({ blob: reportParts[k].blob, name: (k === 'attach' ? 'Lampiran-DE-' : 'Report-DE-') + (meta.tanggal || '') + '.png' }));
-  if(!files.length){ showStatus('⚠ Gambar belum siap', 'error'); return; }
-  shareWA('', files);
+  const k = reportParts[activeReportPart] ? activeReportPart : 'report';
+  const part = reportParts[k];
+  if(!part || !part.blob){ showStatus('⚠ Gambar belum siap', 'error'); return; }
+  const tag = (reportImageLine === 'utama' ? '-Tetrapak' : reportImageLine === 'combibloc' ? '-Combibloc' : '') + (reportImageGroup !== 'all' ? '-DE' + reportImageGroup : '');
+  const name = (k === 'attach' ? 'Lampiran-DE' : 'Report-DE') + tag + '_' + (meta.tanggal || 'tanpa-tanggal') + '_' + (meta.shift || 'Shift').replace(/\s+/g, '-') + '.png';
+  shareWA('', [{ blob: part.blob, name }]);
 }
 function effShareWA(){
   if(!effImgBlob) return;
@@ -9391,7 +9473,7 @@ Object.assign(window, {
 <div id="appVersion" style="text-align:center;font:500 11px 'IBM Plex Mono',monospace;color:var(--muted);opacity:.75;padding:14px 0 4px"></div>
 <script>
 /* APP_VERSION diisi otomatis oleh workflow rilis (jangan diubah manual). */
-var APP_VERSION = '1.4.3';
+var APP_VERSION = '1.0.0';
 (function(){
   var el = document.getElementById('appVersion');
   if(el) el.textContent = 'U-Track v' + APP_VERSION + (window.IS_NATIVE ? '' : ' · Web');
