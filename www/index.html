@@ -7141,6 +7141,7 @@ function pmSet(path, v, rerender){
   if(/\.per$/.test(path) && k.length === 3){ const row = PM[k[0]][k[1]], n = pmN(v); if(row && row.p && n > 0){ PM.fm = PM.fm || {}; PM.fm[pmKey(row.p)] = n; pmSave(); } }
   if(path.indexOf('procs.') === 0){ pmLive(); pmPlanLive(); }
   if(/^plan\.\d+\.(b|mk)$/.test(path)) pmPlanLive();
+  if(/^d\.(tgl|shift|grp|wk)$/.test(path)){ pmPlanLive(); clearTimeout(pmWCTimer); pmWCTimer = setTimeout(() => { pmWC.at = 0; if(PM.planSrc && (accessToken || IS_NATIVE)) pmWeekCookLoad(true); }, 900); }
   if(rerender) pmRender();
 }
 function pmTab(t){ PM.tab = t; pmSave(); pmRender(); }
@@ -7256,7 +7257,7 @@ function pmItemHtml(it, pi, ii){
 // ---------- Planning WIP dari sheet Planning (dropdown Week, isi baris otomatis, berkurang oleh Masak di Proses milk) ----------
 // Produk = kolom E "Product Name"; Batch = angka SETELAH garis miring di kolom I "Achivment (batch)" (mis. "8.8/9" -> 9).
 // Sisa batch = Batch planning - batch yang sudah dimasak di Proses milk (Proses 1, 2, 10, 11 = proses bertanda "milk"), dicocokkan lewat Kode Masak.
-let pmPlanBusyAuto = false;
+let pmPlanBusyAuto = false, pmWCTimer = null;
 let pmWkTabs = [], pmWkBusy = false, pmWkLastTry = 0, pmPlanInfo = '';
 function pmBatchTotal(str){
   const m = /\/\s*([\d.,]+)/.exec(String(str == null ? '' : str)); if(!m) return '';
@@ -7264,24 +7265,94 @@ function pmBatchTotal(str){
   return n > 0 ? String(n).replace('.', ',') : '';   // pmN() membaca koma sebagai desimal (titik = ribuan)
 }
 const pmBFmt = n => String(Math.round(n * 10) / 10).replace('.', ',');
-const pmCodeKey = t => { const m = /[A-Z]+/.exec(String(t || '').toUpperCase()); return m ? m[0] : ''; };   // "CHM 250" -> CHM, "UMP (30 k)" -> UMP
-function pmCookedBatches(){
+// Kode dinormalkan (huruf+angka saja): "CHM 250" -> CHM250. Kode Masak sebaiknya sama persis dengan kolom Code di sheet Planning.
+const pmNorm = t => String(t || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+const pmBase = t => { const m = /^[A-Z]+/.exec(pmNorm(t)); return m ? m[0] : ''; };
+const pmCodeNames = {};
+function pmCookMapOf(items){
   const o = {};
-  PM.procs.forEach(p => { if(!p.milk) return; pmProcView(p).items.forEach(it => { if(it.t !== 'm') return; const k = pmCodeKey(it.prod); if(k) o[k] = (o[k] || 0) + (pmN(it.b) || 1); }); });
+  (items || []).forEach(it => { if(!it || it.t !== 'm') return; const k = pmNorm(it.prod); if(!k) return; if(!pmCodeNames[k]) pmCodeNames[k] = String(it.prod).trim(); o[k] = (o[k] || 0) + (pmN(it.b) || 1); });
   return o;
 }
-// per baris planning: plan, dimasak (dialokasikan berurutan bila beberapa baris sheet punya kode sama), sisa
+function pmItemsOfData(data){   // semua aktivitas dalam satu file Drive: input Dashboard + yang belum diinput
+  const ins = (data.log && data.log.inputs) || [];
+  return ins.flatMap(x => x.items || []).concat(((data.pm && data.pm.procs) || []).flatMap(p => (p.items || []).slice(Math.min(p.sent | 0, (p.items || []).length))));
+}
+// Cache batch yang sudah dimasak per laporan (Drive) untuk week terpilih
+let pmWC = { wk: 0, at: 0, files: {} }, pmWCBusy = false, pmWCLast = 0;
+try{ const c = JSON.parse(localStorage.getItem('pm_wc_v1') || 'null'); if(c && c.files) pmWC = Object.assign(pmWC, c, { at: 0 }); }catch(e){}
+function pmWeekDates(wk){
+  const base = new Date((PM.d.tgl || isoDateStr(new Date())) + 'T00:00:00'), out = [];
+  if(isNaN(base)) return out;
+  for(let i = -21; i <= 21; i++){ const d = new Date(base); d.setDate(d.getDate() + i); const iso = isoDateStr(d); if(pmWeek(iso) === wk) out.push(iso); }
+  return out;
+}
+// Total batch yang dimasak selama week terpilih (SEMUA proses: milk, juice, tea, dll):
+// form ini + semua laporan lain di week yang sama (log perangkat ini dan file laporan di Drive; bila dobel dipakai angka terbesar)
+function pmCookedBatches(){
+  const wk = Number(pmWk()), cur = pmKeyOf(), total = {};
+  const add = m => Object.keys(m).forEach(k => { total[k] = (total[k] || 0) + m[k]; });
+  add(pmCookMapOf(PM.procs.flatMap(p => pmProcView(p).items)));
+  const drv = Object.values(pmWC.files || {}), keys = new Set([...Object.keys(PMLOG), ...drv.map(f => f.key)]);
+  keys.forEach(k => {
+    if(k === cur || pmWeek(k.split('|')[0]) !== wk) return;
+    const e = PMLOG[k], loc = e ? pmCookMapOf((e.inputs || []).flatMap(x => x.items || [])) : {}, dm = {};
+    drv.filter(f => f.key === k).forEach(f => Object.keys(f.map).forEach(c => { dm[c] = Math.max(dm[c] || 0, f.map[c]); }));
+    const m = {}; new Set([...Object.keys(loc), ...Object.keys(dm)]).forEach(c => { m[c] = Math.max(loc[c] || 0, dm[c] || 0); });
+    add(m);
+  });
+  return total;
+}
+// per baris planning: plan, dimasak, sisa. Tahap 1: kode persis sama; tahap 2: sisa batch dicocokkan lewat huruf depan kode (CHM 250 <- "CHM").
 function pmPlanCalc(){
   const pool = Object.assign({}, pmCookedBatches());
-  return PM.plan.map(r => {
-    const plan = pmN(r.b), k = pmCodeKey(r.mk || r.c || r.p);
-    if(!String(r.p || '').trim() || !(plan > 0)) return { plan: 0, cooked: 0, sisa: 0, k };
-    const use = Math.min(plan, pool[k] || 0); if(k) pool[k] = (pool[k] || 0) - use;
-    return { plan, cooked: use, sisa: Math.max(0, plan - use), k };
+  const rows = PM.plan.map(r => {
+    const plan = pmN(r.b), k = pmNorm(r.mk || r.c || r.p), ok = String(r.p || '').trim() && plan > 0;
+    const use = ok ? Math.min(plan, pool[k] || 0) : 0; if(use) pool[k] -= use;
+    return { plan: ok ? plan : 0, cooked: use, sisa: ok ? plan - use : 0, k, ok };
   });
+  Object.keys(pool).forEach(pk => {
+    if(!(pool[pk] > 1e-9)) return;
+    rows.forEach((c, i) => { if(!(pool[pk] > 1e-9) || !c.ok || !(c.sisa > 1e-9)) return; const r = PM.plan[i];
+      if(pmBase(r.mk || r.c || r.p) !== pmBase(pk) || !pmBase(pk)) return;
+      const use = Math.min(c.sisa, pool[pk]); pool[pk] -= use; c.cooked += use; c.sisa -= use; });
+  });
+  rows.left = pool;
+  return rows;
 }
-const pmPlsTxt = c => c.plan > 0 ? `Plan ${pmBFmt(c.plan)} · Dimasak ${pmBFmt(c.cooked)} · <b style="color:${c.sisa > 0 ? 'var(--cyan)' : 'var(--green)'}">${c.sisa > 0 ? 'Sisa ' + pmBFmt(c.sisa) : 'Done'}</b>` : '';
-function pmPlanLive(){ const c = pmPlanCalc(); document.querySelectorAll('[data-pls]').forEach(el => { const x = c[+el.dataset.pls]; el.innerHTML = x ? pmPlsTxt(x) : ''; }); }
+const pmPlsTxt = c => c.plan > 0 ? `Plan ${pmBFmt(c.plan)} · Dimasak ${pmBFmt(c.cooked)} · <b style="color:${c.sisa > 1e-9 ? 'var(--cyan)' : 'var(--green)'}">${c.sisa > 1e-9 ? 'Sisa ' + pmBFmt(c.sisa) : 'Done'}</b>` : '';
+function pmPlanLive(){
+  const c = pmPlanCalc();
+  document.querySelectorAll('[data-pls]').forEach(el => { const x = c[+el.dataset.pls]; el.innerHTML = x ? pmPlsTxt(x) : ''; });
+  const el = document.getElementById('pmWCMsg');
+  if(el){
+    const left = Object.keys(c.left || {}).filter(k => c.left[k] > 1e-9).map(k => pmE(pmCodeNames[k] || k));
+    const nf = Object.values(pmWC.files || {}).filter(f => pmWeek(f.key.split('|')[0]) === Number(pmWk())).length;
+    el.innerHTML = `Dimasak dihitung selama week ${pmE(pmWk())}: form ini + ${nf} laporan lain${pmWCBusy ? ' · memuat dari Drive…' : ''}`
+      + (left.length ? `<br><span style="color:var(--amber)">⚠ Kode Masak tidak cocok dengan planning: ${left.join(', ')} — pilih kode dari daftar planning</span>` : '');
+  }
+}
+async function pmWeekCookLoad(force){
+  if(pmWCBusy) return;
+  const wk = Number(pmWk()); if(!wk) return;
+  if(!force && ((pmWC.wk === wk && Date.now() - pmWC.at < 300000) || Date.now() - pmWCLast < 60000)) return;
+  pmWCBusy = true; pmWCLast = Date.now(); pmPlanLive();
+  try{
+    await getAccessToken();
+    const folderId = await pmEnsureFolder(), dates = new Set(pmWeekDates(wk));
+    const all = (await listAllFilesInFolder(folderId, true)).filter(f => { const m = /^Laporan-Proses_(\d{4}-\d{2}-\d{2})_.*\.json$/.exec(f.name); return m && dates.has(m[1]); });
+    const old = pmWC.wk === wk ? pmWC.files : {}, next = {};
+    await Promise.all(all.map(async f => {
+      if(old[f.id] && old[f.id].mt === f.modifiedTime){ next[f.id] = old[f.id]; return; }
+      const data = await (await driveFetch(`https://www.googleapis.com/drive/v3/files/${f.id}?alt=media`)).json();
+      if(!data || !data.pm || !data.meta) return;
+      next[f.id] = { mt: f.modifiedTime, key: `${data.meta.tanggal}|${data.meta.shift}|${data.meta.group}`, map: pmCookMapOf(pmItemsOfData(data)) };
+    }));
+    pmWC = { wk, at: Date.now(), files: next };
+    try{ localStorage.setItem('pm_wc_v1', JSON.stringify(pmWC)); }catch(e){}
+  }catch(e){ console.warn('pmWeekCookLoad', e); }
+  finally{ pmWCBusy = false; pmPlanLive(); }
+}
 function pmPlanMsg(h){ pmPlanInfo = h; const el = document.getElementById('pmPlanMsg'); if(el) el.innerHTML = h; }
 function pmWkOptions(){
   const cur = String(PM.d.wk || '').trim(), ws = [...new Set(pmWkTabs.map(x => x.wk))].sort((a, b) => a - b);
@@ -7319,6 +7390,7 @@ async function pmLoadPlanFromSheet(auto){
     if(!t){ pmPlanMsg(`⚠ Tab Week ${pmE(pmWk())} tidak ada di sheet Planning`); return; }
     const manual = !PM.planSrc && PM.plan.some(r => String(r.b || '').trim());
     if(auto === true && (PM.planSrc === t.tab || manual)){
+      if(PM.planSrc === t.tab) pmWeekCookLoad(false);
       pmPlanMsg(PM.planSrc === t.tab ? `🟢 Planning dari ${pmE(t.tab)} (tekan “Muat dari sheet” untuk memperbarui)` : 'Planning manual terisi — tekan “Muat dari sheet” untuk menggantinya dengan data sheet');
       return;
     }
@@ -7330,12 +7402,13 @@ async function pmLoadPlanFromSheet(auto){
     if(auto !== true && manual && !confirm(`Ganti baris planning dengan ${rows.length} produk dari ${t.tab}? Isian batch yang sekarang akan diganti.`)){ pmPlanMsg('Dibatalkan — baris planning tidak diubah'); return; }
     PM.plan = rows; PM.planSrc = t.tab; pmSave(); pmRender();
     pmPlanMsg(`🟢 ${rows.length} produk dari ${pmE(t.tab)} · ${new Date().toLocaleTimeString('id-ID')}`);
+    pmWeekCookLoad(true);
   }catch(e){ pmPlanMsg('🔴 ' + pmE(e && e.message ? e.message : 'Gagal memuat planning')); }
 }
 
 function pmMixHtml(){
   const d = PM.d;
-  const dl = id => ({ pmProd: ['CHS', 'PLS', 'STS', 'UMP', 'UMS', 'UMC', 'UMM', 'UMV', 'LFP', 'LFC', 'MCS', 'TKT', 'BLCS', 'RGG', 'Taro'],
+  const dl = id => ({ pmProd: [...new Set(PM.plan.map(r => String(r.c || '').trim()).filter(Boolean).concat(['CHS', 'PLS', 'STS', 'UMP', 'UMS', 'UMC', 'UMM', 'UMV', 'LFP', 'LFC', 'MCS', 'TKT', 'BLCS', 'RGG', 'Taro']))],
     pmDst: [...Array.from({ length: 40 }, (_, i) => 'ST ' + String(i + 1).padStart(2, '0')), ...[1, 2, 3, 4, 5, 6, 7, 8, 9].map(n => 'Silo 0' + n)] }[id]);
   let h = ['pmProd', 'pmDst'].map(id => `<datalist id="${id}">${dl(id).map(v => `<option value="${v}">`).join('')}</datalist>`).join('');
   h += pmCard('🧪 Info Laporan Mixing', pmIn('Tanggal', 'd.tgl', d.tgl, { t: 'date' }) +
@@ -7361,7 +7434,8 @@ function pmMixHtml(){
   h += pmCard('📅 Planning WIP belum dimasak · Weeks <span id="pmWkT">' + pmWk() + '</span>',
     `<div class="field"><label>Weeks (pilih dari sheet Planning)</label><div style="display:flex;gap:6px"><select id="pmWkSel" style="flex:1" onchange="pmPickWk(this.value)">${pmWkOptions()}</select>${pmBt('↻ Muat dari sheet', 'pmLoadPlanFromSheet()')}</div></div>`
     + `<div id="pmPlanMsg" style="font-size:11px;color:var(--muted);margin-bottom:6px">${pmPlanInfo}</div>`
-    + '<div style="font-size:11px;color:var(--muted);margin-bottom:6px">Produk = kolom Product Name, Batch planning = angka setelah garis miring di Achivment (batch). Batch otomatis berkurang oleh Masak di Proses milk (1, 2, 10, 11) yang Kode Masak-nya sama; sisa 0 = ditulis "Done". Kebutuhan fresh milk dihitung dari sisa.</div>' +
+    + `<div id="pmWCMsg" style="font-size:11px;color:var(--muted);margin-bottom:6px"></div>`
+    + '<div style="font-size:11px;color:var(--muted);margin-bottom:6px">Produk = kolom Product Name, Batch planning = angka setelah garis miring di Achivment (batch). Batch otomatis berkurang oleh Masak di SEMUA proses (milk, juice, tea, dll) selama satu week, selama kode Masak sama dengan kode planning; sisa 0 = ditulis "Done". Kebutuhan fresh milk dihitung dari sisa.</div>' +
     (() => { const calc = pmPlanCalc(); return PM.plan.map((r, i) => `<div style="margin-bottom:6px"><div style="display:flex;gap:6px;align-items:flex-end"><div style="flex:1">${pmG(3, pmIn('Produk', `plan.${i}.p`, r.p, { ph: 'CHS (50 k)' }) + pmIn('Batch planning', `plan.${i}.b`, r.b, { m: 'decimal' }) + pmIn('FM/batch (L)', `plan.${i}.per`, r.per, { m: 'decimal', ph: pmFmOf(r.p) || '' }))}</div>${rowDel('plan', i)}</div>`
       + `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:11px;color:var(--muted);margin-top:-4px">Kode Masak <input style="width:76px;padding:4px 8px;font-size:12px" value="${pmE(r.mk || '')}" placeholder="${pmE(calc[i].k)}" oninput="pmSet('plan.${i}.mk',this.value)"><span data-pls="${i}">${pmPlsTxt(calc[i])}</span></div></div>`).join(''); })() +
     pmBt('+ Baris planning', `pmAddRow('plan',{p:'',b:'',per:''})`) + pmTa('Penambahan planning (satu per baris)', 'd.planAdd', d.planAdd));
@@ -7383,6 +7457,7 @@ function pmRender(){
   const tb = (k, t) => `<button type="button" class="btn-secondary" style="flex:1;padding:10px;border-radius:10px;${PM.tab === k ? 'border-color:var(--cyan) !important;color:var(--cyan);' : ''}" onclick="pmTab('${k}')">${t}</button>`;
   el.innerHTML = `<div style="display:flex;gap:8px;margin-bottom:12px">${tb('mix', 'Mixing')}${tb('cut', 'Cutting & Hygiene')}</div>` + (PM.tab === 'cut' ? pmCutHtml() : pmMixHtml());
   pmLive();
+  if(PM.tab !== 'cut'){ pmPlanLive(); if(PM.planSrc && (accessToken || IS_NATIVE)) pmWeekCookLoad(false); }
   if(PM.tab !== 'cut' && !pmWkTabs.length && !pmWkBusy && Date.now() - pmWkLastTry > 30000 && (accessToken || IS_NATIVE)) pmLoadWkTabs(false);
   else if(PM.tab !== 'cut' && pmWkTabs.length && !PM.planSrc && !pmWkBusy && !pmPlanBusyAuto){ pmPlanBusyAuto = true; pmLoadPlanFromSheet(true).finally(() => { pmPlanBusyAuto = false; }); }
 }
@@ -7648,7 +7723,7 @@ async function pmSaveDrive(){
     const text = pmMixText() + '\n\n------------------------------\n\n' + pmCutText();
     await uploadFileToDrive(pmFileName('txt'), 'text/plain; charset=UTF-8', text, folderId);
     await uploadFileToDrive(name, 'application/json; charset=UTF-8', JSON.stringify({ meta: { tanggal: PM.d.tgl, shift: PM.d.shift, group: PM.d.grp }, pm: PM, log: PMLOG[key] || null, updatedAt: new Date().toISOString() }, null, 2), folderId);
-    pmSessionSaved.add(key);
+    pmSessionSaved.add(key); pmWC.at = 0;
     showStatus(`✓ Tersimpan di Drive folder "${PM_FOLDER_NAME}"`, 'success');
     pendClear('pm');
   }catch(err){
@@ -9576,7 +9651,7 @@ Object.assign(window, {
 <div id="appVersion" style="text-align:center;font:500 11px 'IBM Plex Mono',monospace;color:var(--muted);opacity:.75;padding:14px 0 4px"></div>
 <script>
 /* APP_VERSION diisi otomatis oleh workflow rilis (jangan diubah manual). */
-var APP_VERSION = '1.4.6';
+var APP_VERSION = '1.0.0';
 (function(){
   var el = document.getElementById('appVersion');
   if(el) el.textContent = 'U-Track v' + APP_VERSION + (window.IS_NATIVE ? '' : ' · Web');
