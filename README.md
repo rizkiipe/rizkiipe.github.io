@@ -109,8 +109,8 @@ Setiap rilis, APK otomatis dikirim ke grup itu. Langkah ini dilewati bila secret
 - Draf **lebih dari 2 jam**: langsung terbuka laporan baru dan draf lama dihapus (sebelumnya dipulihkan sampai 14 jam).
 - Pengecualian: laporan yang masih **antre terkirim (offline)** dipulihkan otomatis tanpa bertanya selama **6 jam** terakhir, supaya data yang belum terkirim ke Drive tidak hilang.
 
-## Perubahan 1.4.7
-Merangkum perubahan setelah 1.4.4 (termasuk 1.4.5 dan 1.4.6).
+## Perubahan 1.4.8
+Merangkum perubahan setelah 1.4.4 (termasuk 1.4.5 sampai 1.4.7).
 
 **Efisiensi: peringatan selisih total liter**
 - Peringatan "Total liter hasil baca beda dengan Total di sheet" kini menyebut selisihnya, arah selisih (hasil baca lebih besar atau lebih kecil dari sheet) beserta dugaan penyebabnya, dan menampilkan sampai 4 tanggal dengan selisih terbesar.
@@ -119,7 +119,7 @@ Merangkum perubahan setelah 1.4.4 (termasuk 1.4.5 dan 1.4.6).
 **Proses -> Planning WIP belum dimasak (terhubung ke sheet Planning)**
 - **Weeks jadi dropdown** dari tab-tab Week di sheet Planning (sheet yang sama dengan menu Planning), plus pilihan "Otomatis (nomor week hari ini)". Tombol **Muat dari sheet** memperbarui manual.
 - **Baris planning terisi otomatis** saat entry Proses dibuka dan saat week diganti: Produk = kolom E (Product Name), Batch planning = angka setelah garis miring di kolom I (Achivment (batch)), mis. `8.8/9` menjadi 9. Baris dengan batch 0 dilewati. Isian planning manual tidak ditimpa otomatis; aplikasi bertanya dulu bila Anda menekan Muat dari sheet.
-- **Kode Masak mengikuti planning**: kolom Produk di tiap Masak menyarankan kode dari kolom Code di sheet (mis. `CHM 250`, `UMP`, `BJB 245`). Pencocokan memakai kode lengkap yang sama persis (spasi dan huruf besar/kecil diabaikan); bila hanya huruf depan yang cocok, sisa batch dicocokkan ke baris yang masih punya sisa. Tiap baris punya kolom kecil **Kode Masak** yang bisa diubah manual bila kode di Masak berbeda dengan sheet.
+- **Kode Masak mengikuti planning, tanpa angka ukuran**: kolom Produk di tiap Masak menyarankan kode dari kolom Code di sheet **tanpa angka** (mis. `CHM`, `PLM`, `UMP`, `BJB`), karena resepnya sama untuk semua ukuran (CHM 200 = CHM 1000). Batch yang dimasak per kode mengurangi baris-baris planning berkode sama (CHM 125, CHM 200, CHM 250, …) secara berurutan sesuai urutan di sheet. Tiap baris punya kolom kecil **Kode Masak** yang bisa diubah manual bila kode di Masak berbeda dengan sheet (mis. CHS untuk CHM).
 - **Batch berkurang otomatis oleh Masak**: tiap baris menampilkan "Plan · Dimasak · Sisa" dan berubah langsung saat Masak diisi; sisa 0 tampil "Done". Teks laporan, Total kebutuhan fresh milk, dan dashboard memakai **sisa**.
 - **Dihitung selama satu week**: batch yang dimasak dijumlah dari form ini, log di HP ini, dan semua laporan Proses lain di week yang sama yang tersimpan di Drive (termasuk dari HP lain). Bila laporan yang sama ada di HP dan Drive, dipakai angka terbesar (tidak dijumlah dobel). Data Drive disegarkan paling sering sekali per 5 menit, juga saat tanggal/shift/group/week berubah dan setelah laporan tersimpan.
 - **Semua proses ikut** (milk, juice, tea, dll), bukan hanya Proses 1, 2, 10, 11. Total Produksi (liter) di teks laporan tetap hanya menghitung proses milk.
