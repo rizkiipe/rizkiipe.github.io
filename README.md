@@ -8,6 +8,7 @@ Web app dibundel di dalam APK. Situs **https://laporan-de-uht-62ebd.web.app** ik
 - `capacitor.config.json`, `package.json` : konfigurasi Capacitor 8.
 - `android-overlay/` + `scripts/patch-android.py` : plugin update APK, ikon, splash, izin kamera, deep link login.
 - `.github/workflows/build-apk.yml` : build, tanda tangan, rilis APK, deploy situs.
+- `VERSION` : nomor versi rilis. Mengubah isinya (commit ke `main`) otomatis memicu build dan rilis.
 - `tools/buat-hash.html` : pembuat hash password / daftar email login.
 
 GitHub Pages TIDAK dipakai (tidak perlu diaktifkan).
@@ -28,6 +29,10 @@ GitHub Pages TIDAK dipakai (tidak perlu diaktifkan).
 PERHATIAN: deploy mengganti seluruh isi situs Firebase dengan isi `www/`. File lain yang dulu ada di situs itu akan hilang.
 
 ## Rilis update
+
+**Cara cepat (otomatis):** edit file `VERSION` di repo (mis. isi jadi `1.4.8`), commit ke `main`. Workflow berjalan sendiri: build, tanda tangan, rilis, deploy situs. Catatan update diambil dari pesan commit. Nomor harus baru dan lebih besar dari rilis terakhir; kalau sudah pernah dirilis atau lebih kecil, workflow berhenti dengan pesan error. Kalau ikut mengubah `www/index.html`, commit di commit yang sama atau lebih dulu, karena build memakai isi `main` terbaru saat berjalan.
+
+**Cara manual (tetap bisa):**
 1. Commit perubahan di `www/index.html` seperti biasa.
 2. **Actions -> Build & Release APK -> Run workflow** -> isi versi baru (mis. `1.0.1`) dan catatan update.
 3. Workflow: mengisi versi, build dan menandatangani APK, merilis di GitHub, men-deploy situs Firebase, lalu menyimpan nomor versi ke repo.
