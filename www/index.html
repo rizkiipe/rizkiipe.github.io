@@ -184,6 +184,14 @@
   .hist-select{display:flex;align-items:center;gap:5px;color:var(--muted);font-size:11.5px;cursor:pointer;white-space:nowrap;}
   .hist-select input{accent-color:var(--cyan);cursor:pointer;}
   .history-head-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;justify-content:flex-end;}
+  .hist-filter{margin:6px 0 10px;display:flex;flex-direction:column;gap:8px;}
+  .hist-filter input[type=search]{width:100%;background:var(--panel-2);border:1px solid var(--line);border-radius:14px;color:var(--text);padding:10px 12px;font-size:14px;box-sizing:border-box;}
+  .hist-filter input[type=search]:focus{outline:none;border-color:var(--cyan);}
+  .hist-filter-row{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+  .hist-filter-row select{width:100%;min-width:0;background:var(--panel-2);border:1px solid var(--line);color:var(--text);padding:9px 10px;font-size:13px;box-sizing:border-box;}
+  .hist-info{font-size:11.5px;color:var(--muted);line-height:1.5;}
+  .hist-hits{margin-top:4px;display:flex;flex-direction:column;gap:2px;}
+  .hist-hit{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--text);opacity:.85;word-break:break-word;}
 
   .modal-bg{position:fixed;inset:0;background:rgba(4,7,14,.8);z-index:50;display:none;align-items:flex-end;justify-content:center;}
   .modal-bg.open{display:flex;}
@@ -762,6 +770,21 @@ html.is-native .pbtn:active,html.is-native .btn-secondary:active,html.is-native 
         <button class="hist-delete" id="shareSelectedHistoryButton" type="button" onclick="shareSelectedHistory()" disabled style="color:var(--cyan);border-color:var(--cyan);">📤 Kirim Ditandai</button>
         <button class="hist-delete" id="deleteSelectedHistoryButton" type="button" onclick="deleteSelectedHistory()" disabled>Hapus Ditandai</button>
         <button class="hist-delete" type="button" onclick="deleteAllHistory()">Hapus Semua</button>
+      </div>
+      <div class="hist-filter">
+        <input type="search" id="histQ" placeholder="Cari tanggal, shift, group, kode box, PB, lot, DE, SKU…" oninput="histFilterChanged()" autocomplete="off">
+        <div class="hist-filter-row">
+          <select id="histMonth" onchange="histFilterChanged(true)"><option value="">Semua bulan</option></select>
+          <select id="histShift" onchange="histFilterChanged(true)"><option value="">Semua shift</option><option value="Shift 1">Shift 1</option><option value="Shift 2">Shift 2</option><option value="Shift 3">Shift 3</option></select>
+          <select id="histGroup" onchange="histFilterChanged(true)"><option value="">Semua group</option></select>
+          <select id="histType" onchange="histFilterChanged(true)"><option value="">Semua jenis</option><option value="json">Data (.json)</option><option value="txt">Teks (.txt)</option><option value="other">Rekap / lainnya</option></select>
+        </div>
+        <div class="history-head-actions" style="justify-content:flex-start;">
+          <button class="hist-delete" type="button" onclick="histBuildIndexUI()" style="color:var(--cyan);border-color:var(--cyan);">🔎 Baca kode box semua riwayat</button>
+          <button class="hist-delete" type="button" onclick="histMarkResults()" style="color:var(--text);">☑ Tandai hasil</button>
+          <button class="hist-delete" type="button" onclick="histResetFilter()" style="color:var(--muted);">✕ Reset</button>
+        </div>
+        <div class="hist-info" id="histInfo"></div>
       </div>
       <div id="historyList"><div class="hist-empty">Tekan "Muat Ulang" untuk melihat riwayat.</div></div>
     </div>
@@ -3035,6 +3058,108 @@ function populateFromData(data){
   sheetRepairLegacyIdle();   // semua jalur muat (file, gambar, riwayat Drive): perbaiki data lama bertanda idle
 }
 
+// ===================== CEK KONFLIK KODE BOX SAAT SAVE =====================
+// Kunci kode box = tanggal L + No. Mc + huruf batch (mis. "261026-42B"). Kunci yang sama (di form ini atau di laporan lain di Drive)
+// harus punya PB, Expire, dan SKU yang sama; No. Mc di kode box juga harus sama dengan No. DE-nya.
+const BOX_MON = { jan:'jan', feb:'feb', mar:'mar', apr:'apr', mei:'may', may:'may', jun:'jun', jul:'jul', agu:'aug', agt:'aug', aug:'aug', sep:'sep', okt:'oct', oct:'oct', nov:'nov', des:'dec', dec:'dec' };
+function boxExpireKey(t){
+  const m = String(t || '').match(/(\d{1,2})\s+([A-Za-z]+)\.?\s+(\d{4})/);
+  if(!m) return histNorm(t);
+  const k = m[2].slice(0, 3).toLowerCase();
+  return `${parseInt(m[1], 10)}-${BOX_MON[k] || k}-${m[3]}`;
+}
+function boxParse(code){
+  const raw = String(code || '').trim();
+  if(!raw) return null;
+  const st = boxToStored(raw);
+  const m = st.match(/L-(\d{2})\.(\d{2})\.(\d{2})-Mc\s*(\d+)-?([A-Za-z])?/i);
+  const pb = st.match(/PB\s*-?\s*(\d+)/i);
+  const i = st.indexOf('L-');
+  return {
+    raw,
+    lot: m ? `${m[1]}${m[2]}${m[3]}-${m[4]}${(m[5] || '').toUpperCase()}` : '',
+    lotDate: m ? `20${m[3]}-${m[2]}-${m[1]}` : '',
+    mc: m ? m[4] : '',
+    pb: pb ? String(parseInt(pb[1], 10)) : '',
+    exp: i > 0 ? boxExpireKey(st.slice(0, i)) : ''
+  };
+}
+function boxRows(entries, src){
+  const rows = [];
+  entries.forEach(e => {
+    const de = String(Array.isArray(e) ? e[0] : (e.deNumber || '')).trim();
+    const sku = Array.isArray(e) ? e[1] : (e.productType || '');
+    const codes = Array.isArray(e) ? [e[3], e[4]] : [e.boxCode, e.boxCode2];
+    codes.forEach(c => {
+      const p = boxParse(c);
+      if(p) rows.push({ de, sku: String(sku || ''), p, src });
+    });
+  });
+  return rows;
+}
+async function findBoxConflicts(data, jsonName, folderId){
+  const local = boxRows(data.deEntries, 'form');
+  if(!local.length) return [];
+  const issues = [];
+  // 1) format & No. Mc
+  local.forEach(r => {
+    if(!r.p.lot) issues.push(`DE ${r.de}: format kode box tidak standar (tidak terbaca L-ddmmyy-Mc)`);
+    else if(r.de && r.p.mc && parseInt(r.p.mc, 10) !== parseInt(r.de, 10)) issues.push(`DE ${r.de}: kode box L-${r.p.lot} memuat Mc ${r.p.mc}, tidak sama dengan DE ${r.de}`);
+  });
+  // 2) riwayat Drive: hanya file dengan tanggal >= tanggal lot paling awal (lot tidak mungkin muncul sebelum tanggalnya)
+  const dates = local.map(r => r.p.lotDate).filter(Boolean).sort();
+  let hist = [];
+  if(dates.length){
+    const minD = new Date(dates[0] + 'T00:00:00'); minD.setDate(minD.getDate() - 1);
+    const minS = `${minD.getFullYear()}-${String(minD.getMonth() + 1).padStart(2, '0')}-${String(minD.getDate()).padStart(2, '0')}`;
+    const all = await listAllFilesInFolder(folderId, true);
+    const files = all.filter(f => histIsJson(f) && f.name !== jsonName).filter(f => { const p = histParseName(f.name); return p && p.date >= minS; });
+    if(files.length){
+      showStatus('Memeriksa kode box terhadap riwayat…', 'info');
+      await histEnsureIndex(files);
+      const idx = histLoadIdx();
+      files.forEach(f => { const ix = idx[f.id]; if(ix) hist.push(...boxRows(ix.es, f.name)); });
+    }
+  }
+  // 3) lot sama -> PB / Expire / SKU harus sama
+  const pool = local.concat(hist);
+  const seen = new Set();
+  local.forEach((a, ai) => {
+    if(!a.p.lot) return;
+    pool.forEach((b, bi) => {
+      if(b === a || b.p.lot !== a.p.lot) return;
+      if(b.src === 'form' && bi < ai) return;   // pasangan sesama form cukup dicek sekali
+      const where = b.src === 'form' ? `DE ${b.de} di form ini` : b.src.replace(/^Laporan-DE_/, '').replace(/\.json$/i, '');
+      const lotTxt = 'L-' + a.p.lot;
+      const diffs = [];
+      if(a.p.pb && b.p.pb && a.p.pb !== b.p.pb) diffs.push(`PB ${a.p.pb} ≠ ${b.p.pb}`);
+      if(a.p.exp && b.p.exp && a.p.exp !== b.p.exp) diffs.push('Expire berbeda');
+      if(a.sku && b.sku && a.sku !== b.sku) diffs.push(`SKU ${a.sku} ≠ ${b.sku}`);
+      if(!diffs.length) return;
+      const key = [lotTxt, a.de, diffs.join(), where].join('|');
+      if(seen.has(key)) return;
+      seen.add(key);
+      issues.push(`${lotTxt} (DE ${a.de}): ${diffs.join(', ')} — bentrok dengan ${where}`);
+    });
+  });
+  return [...new Set(issues)];
+}
+// true = lanjut simpan. Pemeriksaan gagal (bukan masalah koneksi) tidak menghalangi simpan.
+async function confirmBoxConflicts(data, jsonName, folderId){
+  let issues = [];
+  try{
+    issues = await findBoxConflicts(data, jsonName, folderId);
+  }catch(err){
+    if(isNetErr(err)) throw err;
+    console.error('cek kode box gagal', err);
+    return true;
+  }
+  if(!issues.length) return true;
+  const lines = issues.slice(0, 8).map(t => '• ' + t).join('\n');
+  const more = issues.length > 8 ? `\n… dan ${issues.length - 8} temuan lain` : '';
+  return confirm(`⚠ Cek kode box: ${issues.length} temuan\n\n${lines}${more}\n\nTetap simpan ke Drive?`);
+}
+
 let uploadedDeKeysThisSession = new Set(); // `${tanggal}|${shift}|${group}|${deNumber}` yang berhasil diupload sesi ini
 
 async function fabSaveDrive(){
@@ -3113,6 +3238,10 @@ async function uploadToDrive(){
     }
 
     mergedEntries = groupEntriesByDeNumber(mergedEntries);
+    if(!(await confirmBoxConflicts(data, jsonName, folderId))){
+      showStatus('Upload dibatalkan — periksa kode box dulu.', 'info');
+      return;
+    }
     const mergedData = { ...data, deEntries: mergedEntries };
     const reportText = buildReportText(mergedData.meta, mergedData.deEntries);
 
@@ -3142,6 +3271,236 @@ function openHistoryGuarded(){
   openHistory();   // membuka Riwayat tidak lagi minta password (hapus/timpa tetap minta)
 }
 
+// ===================== RIWAYAT: pencarian, filter & telusuri kode box =====================
+// Indeks isi laporan (No. DE, SKU, Kode Box) disimpan di memori + localStorage; hanya file baru/berubah yang dibaca ulang dari Drive.
+const HIST_IDX_KEY = 'de_box_index_v1';
+const HIST_PAGE = 10;
+let histFiles = [], histFiltered = [], histShown = 0, histIdx = null, histBuilding = false, histDebounce = null;
+
+const histNorm = t => String(t == null ? '' : t).toUpperCase().replace(/[^A-Z0-9]/g, '');
+const histIsJson = f => /\.json$/i.test(f.name || '');
+function histParseName(name){
+  const m = String(name || '').match(/^Laporan-DE_(\d{4})-(\d{2})-(\d{2})_Shift-(\d+)_Group-(.+?)\.(json|txt)$/i);
+  return m ? { date: `${m[1]}-${m[2]}-${m[3]}`, month: `${m[1]}-${m[2]}`, shift: 'Shift ' + m[4], group: m[5].toUpperCase() } : null;
+}
+function histLoadIdx(){
+  if(histIdx) return histIdx;
+  histIdx = {};
+  try{ const t = localStorage.getItem(HIST_IDX_KEY); if(t) histIdx = JSON.parse(t) || {}; }catch(e){ histIdx = {}; }
+  return histIdx;
+}
+function histSaveIdx(){
+  try{
+    const keys = Object.keys(histIdx || {});
+    if(keys.length > 600){
+      keys.sort((x, y) => String(histIdx[y].mt).localeCompare(String(histIdx[x].mt))).slice(600).forEach(k => delete histIdx[k]);
+    }
+    localStorage.setItem(HIST_IDX_KEY, JSON.stringify(histIdx));
+  }catch(e){}
+}
+// [noDE, SKU, sterilizer, kodeBox, kodeBox00:00]
+function histEntriesOf(data){
+  const list = (data && Array.isArray(data.deEntries)) ? data.deEntries : [];
+  return list.map(e => [String(e.deNumber || '').trim(), e.productType || '', e.machineType || '', String(e.boxCode || '').trim(), String(e.boxCode2 || '').trim()])
+             .filter(a => a[0] || a[3] || a[4]);
+}
+const histEntryHay = e => histNorm('DE' + e[0] + ' MC' + e[0] + ' ' + e[1] + ' ' + e[2] + ' ' + reportBoxCode(e[3]) + ' ' + reportBoxCode(e[4]));
+
+// Baca isi file .json yang belum terindeks / sudah berubah. onProgress(done,total)
+async function histEnsureIndex(files, onProgress){
+  const idx = histLoadIdx();
+  const todo = files.filter(f => histIsJson(f) && (!idx[f.id] || idx[f.id].mt !== f.modifiedTime));
+  if(!todo.length) return 0;
+  let i = 0, done = 0;
+  const worker = async () => {
+    while(i < todo.length){
+      const f = todo[i++];
+      try{
+        const res = await driveFetch(`https://www.googleapis.com/drive/v3/files/${f.id}?alt=media`);
+        const data = await res.json();
+        idx[f.id] = { mt: f.modifiedTime, es: histEntriesOf(data) };
+      }catch(err){
+        if(isNetErr(err)) throw err;
+        idx[f.id] = { mt: f.modifiedTime, es: [] };   // bukan file laporan / rusak: tandai supaya tidak dibaca berulang
+      }
+      done++;
+      if(onProgress) onProgress(done, todo.length);
+    }
+  };
+  try{ await Promise.all([worker(), worker(), worker(), worker()]); }
+  finally{ histSaveIdx(); }
+  return todo.length;
+}
+function histUnindexedCount(){
+  const idx = histLoadIdx();
+  return histFiles.filter(f => histIsJson(f) && (!idx[f.id] || idx[f.id].mt !== f.modifiedTime)).length;
+}
+async function histBuildIndexUI(){
+  if(histBuilding) return;
+  if(!histFiles.length){ showStatus('ℹ Muat riwayat dulu', 'info'); return; }
+  histBuilding = true;
+  const info = document.getElementById('histInfo');
+  try{
+    const n = await histEnsureIndex(histFiles, (d, t) => { if(info) info.textContent = `Membaca kode box… ${d}/${t} file`; });
+    if(!n) showStatus('✓ Indeks kode box sudah terbaru', 'success');
+  }catch(err){
+    console.error(err);
+    showStatus('✕ Gagal membaca riwayat: ' + (err.message || 'unknown error'), 'error');
+  }finally{
+    histBuilding = false;
+    histApplyFilters();
+  }
+}
+
+function histTerms(){
+  return String(document.getElementById('histQ').value || '').split(/\s+/).map(histNorm).filter(Boolean);
+}
+function histFilterChanged(immediate){
+  clearTimeout(histDebounce);
+  const run = () => {
+    histApplyFilters();
+    // pencarian teks >= 3 huruf: baca isi kode box otomatis (sekali; berikutnya hanya file baru)
+    if(!histBuilding && histTerms().some(t => t.length >= 3) && histUnindexedCount() > 0) histBuildIndexUI();
+  };
+  if(immediate) run(); else histDebounce = setTimeout(run, 250);
+}
+function histResetFilter(){
+  ['histQ', 'histMonth', 'histShift', 'histGroup', 'histType'].forEach(id => { const el = document.getElementById(id); if(el) el.value = ''; });
+  histApplyFilters();
+}
+function histPopulateFilters(){
+  const mSel = document.getElementById('histMonth'), gSel = document.getElementById('histGroup');
+  if(!mSel || !gSel) return;
+  const months = new Set(), groups = new Set();
+  histFiles.forEach(f => { const p = histParseName(f.name); if(p){ months.add(p.month); groups.add(p.group); } });
+  const curM = mSel.value, curG = gSel.value;
+  mSel.innerHTML = '<option value="">Semua bulan</option>' + [...months].sort().reverse().map(m => {
+    const [y, mo] = m.split('-'); return `<option value="${m}">${BULAN_ID[parseInt(mo, 10) - 1]} ${y}</option>`;
+  }).join('');
+  gSel.innerHTML = '<option value="">Semua group</option>' + [...groups].sort().map(g => `<option value="${escHtml(g)}">Group ${escHtml(g)}</option>`).join('');
+  mSel.value = months.has(curM) ? curM : '';
+  gSel.value = groups.has(curG) ? curG : '';
+}
+
+function histApplyFilters(){
+  const list = document.getElementById('historyList');
+  if(!list) return;
+  const month = document.getElementById('histMonth').value, shift = document.getElementById('histShift').value;
+  const group = document.getElementById('histGroup').value, type = document.getElementById('histType').value;
+  const terms = histTerms();
+  const idx = histLoadIdx();
+  const byName = {};
+  histFiles.forEach(f => { if(histIsJson(f) && idx[f.id]) byName[f.name] = idx[f.id]; });
+  histFiltered = [];
+  histFiles.forEach(f => {
+    const p = histParseName(f.name);
+    if(month && (!p || p.month !== month)) return;
+    if(shift && (!p || p.shift !== shift)) return;
+    if(group && (!p || p.group !== group)) return;
+    const isJson = histIsJson(f), isTxt = /\.txt$/i.test(f.name || '');
+    if(type === 'json' && !isJson) return;
+    if(type === 'txt' && !isTxt) return;
+    if(type === 'other' && (isJson || isTxt)) return;
+    let hits = null;
+    if(terms.length){
+      const nh = histNorm(f.name);
+      if(!terms.every(t => nh.includes(t))){
+        const ix = isJson ? idx[f.id] : (isTxt ? byName[f.name.replace(/\.txt$/i, '.json')] : null);   // .txt ikut hasil .json pasangannya
+        if(!ix) return;
+        const boxTerms = terms.filter(t => !nh.includes(t));
+        const found = ix.es.filter(e => { const eh = histEntryHay(e); return boxTerms.every(t => eh.includes(t)); });
+        if(!found.length) return;
+        hits = found;
+      }
+    }
+    histFiltered.push(Object.assign({}, f, { __hits: hits }));
+  });
+  histShown = 0;
+  list.innerHTML = '';
+  if(!histFiltered.length){
+    list.innerHTML = '<div class="hist-empty">' + (histFiles.length ? 'Tidak ada riwayat yang cocok.' : 'Belum ada laporan di Drive.') + '</div>';
+  }else{
+    histShowNext();
+  }
+  histUpdateInfo(terms);
+}
+function histUpdateInfo(terms){
+  const info = document.getElementById('histInfo');
+  if(!info || histBuilding) return;
+  const jsons = histFiles.filter(histIsJson).length;
+  const left = histUnindexedCount();
+  let t = `${histFiltered.length} dari ${histFiles.length} riwayat`;
+  if(terms && terms.length && left > 0) t += ` · kode box baru terbaca ${jsons - left}/${jsons} file (cari lagi setelah selesai)`;
+  else if(jsons) t += ` · kode box terbaca ${jsons - left}/${jsons} file`;
+  info.textContent = t;
+}
+function histShowNext(){
+  const list = document.getElementById('historyList');
+  const old = document.getElementById('histMoreBtn');
+  if(old) old.remove();
+  histFiltered.slice(histShown, histShown + HIST_PAGE).forEach(histAddRow);
+  histShown = Math.min(histFiltered.length, histShown + HIST_PAGE);
+  const left = histFiltered.length - histShown;
+  if(left > 0){
+    const b = document.createElement('button');
+    b.type = 'button'; b.id = 'histMoreBtn'; b.className = 'pbtn btn-secondary';
+    b.style.cssText = 'width:100%;margin-top:8px;font-size:13px;padding:10px';
+    b.textContent = `Tampilkan lebih banyak (${left} lagi)`;
+    b.onclick = histShowNext;
+    list.appendChild(b);
+  }
+}
+function histAddRow(f){
+  const list = document.getElementById('historyList');
+  const row = document.createElement('div');
+  row.className = 'hist-row';
+  const when = new Date(f.modifiedTime).toLocaleString('id-ID');
+  const who = (f.lastModifyingUser && (f.lastModifyingUser.displayName || f.lastModifyingUser.emailAddress)) ? ' · oleh ' + escHtml(f.lastModifyingUser.displayName || f.lastModifyingUser.emailAddress) : '';
+  let hitsHtml = '';
+  if(f.__hits && f.__hits.length){
+    const lines = f.__hits.slice(0, 4).map(e => `<div class="hist-hit">DE ${escHtml(e[0])}${e[1] ? ' · ' + escHtml(e[1]) : ''} · ${escHtml(reportBoxCode(e[3]) || '-')}${e[4] ? ' → ' + escHtml(reportBoxCode(e[4])) : ''}</div>`).join('');
+    hitsHtml = `<div class="hist-hits">${lines}${f.__hits.length > 4 ? `<div class="hist-hit">+${f.__hits.length - 4} DE lain cocok</div>` : ''}</div>`;
+  }
+  row.innerHTML = `
+    <div class="hist-main" role="button" tabindex="0">
+      <span class="hist-id">${escHtml(f.name)}</span>
+      <span class="hist-sub">${when}${who}${f.mimeType==='application/json' ? ' · klik untuk muat ke form' : ' · klik untuk buka'}</span>
+      ${hitsHtml}
+    </div>
+    <label class="hist-select"><input class="hist-select-input" type="checkbox">Tandai</label>
+    <button class="hist-delete" type="button">Hapus</button>`;
+  const openFile = () => {
+    if(f.mimeType === 'application/json'){ loadFromDrive(f.id); }
+    else { window.open(f.webViewLink || ('https://drive.google.com/file/d/'+f.id+'/view'), '_blank'); }
+  };
+  const main = row.querySelector('.hist-main');
+  const selectInput = row.querySelector('.hist-select-input');
+  selectInput.checked = selectedHistoryFileIds.has(f.id);
+  main.onclick = openFile;
+  main.onkeydown = (event) => {
+    if(event.key === 'Enter' || event.key === ' '){ event.preventDefault(); openFile(); }
+  };
+  selectInput.onchange = () => {
+    if(selectInput.checked) selectedHistoryFileIds.add(f.id);
+    else selectedHistoryFileIds.delete(f.id);
+    updateSelectedHistoryDeleteButton();
+  };
+  row.querySelector('.hist-delete').onclick = () => deleteHistoryFile(f.id, f.name);
+  list.appendChild(row);
+}
+// Tandai semua hasil filter (semua halaman, bukan hanya yang tampil). Tekan lagi = batal tandai.
+function histMarkResults(){
+  if(!histFiltered.length){ showStatus('ℹ Tidak ada hasil untuk ditandai', 'info'); return; }
+  const allMarked = histFiltered.every(f => selectedHistoryFileIds.has(f.id));
+  histFiltered.forEach(f => { if(allMarked) selectedHistoryFileIds.delete(f.id); else selectedHistoryFileIds.add(f.id); });
+  document.querySelectorAll('#historyList .hist-row').forEach((row, i) => {
+    const f = histFiltered[i]; const cb = row.querySelector('.hist-select-input');
+    if(f && cb) cb.checked = selectedHistoryFileIds.has(f.id);
+  });
+  updateSelectedHistoryDeleteButton();
+  showStatus(allMarked ? 'Tanda hasil dibatalkan' : `✓ ${histFiltered.length} riwayat hasil filter ditandai`, 'info');
+}
+
 async function openHistory(){
   const modal = document.getElementById('historyModal');
   const list = document.getElementById('historyList');
@@ -3150,67 +3509,12 @@ async function openHistory(){
   list.innerHTML = '<div class="hist-empty">Memuat…</div>';
   modal.classList.add('open');
   try{
-    const files = await getHistoryFiles();
-    if(!files.length){
-      list.innerHTML = '<div class="hist-empty">Belum ada laporan di Drive.</div>';
-      return;
-    }
-    list.innerHTML = '';
-    const HIST_PAGE = 5;   // jumlah riwayat yang tampil per tahap (terbaru di atas)
-    let shown = 0;
-    const moreBtn = document.createElement('button');
-    moreBtn.type = 'button';
-    moreBtn.className = 'pbtn btn-secondary';
-    moreBtn.style.cssText = 'width:100%;margin-top:8px;font-size:13px;padding:10px';
-    const renderMoreBtn = () => {
-      const left = files.length - shown;
-      if(left <= 0){ moreBtn.remove(); return; }
-      moreBtn.textContent = `Tampilkan lebih banyak (${left} lagi)`;
-      list.appendChild(moreBtn);   // selalu di paling bawah
-    };
-    moreBtn.onclick = () => showNext();
-    const showNext = () => {
-      files.slice(shown, shown + HIST_PAGE).forEach(addRow);
-      shown = Math.min(files.length, shown + HIST_PAGE);
-      renderMoreBtn();
-    };
-    const addRow = (f) => {
-      const row = document.createElement('div');
-      row.className = 'hist-row';
-      const when = new Date(f.modifiedTime).toLocaleString('id-ID');
-      const who = (f.lastModifyingUser && (f.lastModifyingUser.displayName || f.lastModifyingUser.emailAddress)) ? ' · oleh ' + escHtml(f.lastModifyingUser.displayName || f.lastModifyingUser.emailAddress) : '';
-      row.innerHTML = `
-        <div class="hist-main" role="button" tabindex="0">
-          <span class="hist-id">${f.name}</span>
-          <span class="hist-sub">${when}${who}${f.mimeType==='application/json' ? ' · klik untuk muat ke form' : ' · klik untuk buka'}</span>
-        </div>
-        <label class="hist-select"><input class="hist-select-input" type="checkbox">Tandai</label>
-        <button class="hist-delete" type="button">Hapus</button>`;
-      const openFile = () => {
-        if(f.mimeType === 'application/json'){ loadFromDrive(f.id); }
-        else { window.open(f.webViewLink || ('https://drive.google.com/file/d/'+f.id+'/view'), '_blank'); }
-      };
-      const main = row.querySelector('.hist-main');
-      const selectInput = row.querySelector('.hist-select-input');
-      main.onclick = openFile;
-      main.onkeydown = (event) => {
-        if(event.key === 'Enter' || event.key === ' '){
-          event.preventDefault();
-          openFile();
-        }
-      };
-      selectInput.onchange = () => {
-        if(selectInput.checked) selectedHistoryFileIds.add(f.id);
-        else selectedHistoryFileIds.delete(f.id);
-        updateSelectedHistoryDeleteButton();
-      };
-      row.querySelector('.hist-delete').onclick = () => deleteHistoryFile(f.id, f.name);
-      list.appendChild(row);
-    };
-    showNext();
+    histFiles = await getHistoryFiles();
+    histPopulateFilters();
+    histApplyFilters();
   }catch(err){
     console.error(err);
-    list.innerHTML = '<div class="hist-empty">Gagal memuat: ' + err.message + '</div>';
+    list.innerHTML = '<div class="hist-empty">Gagal memuat: ' + escHtml(err.message) + '</div>';
   }
 }
 
@@ -9628,7 +9932,7 @@ Object.assign(window, {
   updateMachineType, updateProductType, updateRunType, updateBoxCode, updateBoxCode2, regenerateExpiryFromLDate, handleTanggalChange, handleShiftChange, handleGroupChange,
   setDePhoto, removeDePhoto, closeLightbox, downloadInteractive, setImageMode, setImageLine, setImageLayout, zoomPreview, toggleImgOpts, setImagePart, downloadBothImages,
   generateReport, setReportLine, closeModal, copyReport, copyReportGroup, copyImageGroup, setImageGroup, downloadTxt, saveJSON, loadJSON, generateDeImage, closeImageModal, copyImage, downloadImage,
-  uploadToDrive, fabSaveDrive, openHistory, openHistoryGuarded, closeHistory, loadFromDrive, deleteHistoryFile, deleteAllHistory, deleteSelectedHistory, shareSelectedHistory, importHistoryFiles,
+  uploadToDrive, fabSaveDrive, histFilterChanged, histBuildIndexUI, histMarkResults, histResetFilter, openHistory, openHistoryGuarded, closeHistory, loadFromDrive, deleteHistoryFile, deleteAllHistory, deleteSelectedHistory, shareSelectedHistory, importHistoryFiles,
   generateAndUploadWeeklyRecap, generateAndUploadMonthlyRecap, closeRecap, setRecapMode, showPeriodRecap, downloadPeriodRecapXlsx, toggleRecapMachine, clearRecapMachines, setRecapSort,
   toggleSheetSync, sheetSyncOnce, showPage, showSub, doLogin, doGoogleLogin, pickCamera, bioLogin, shareTextWA, shareImageWA, effShareWA, installApp, generateLaporan, setLaporanLine, loadDash, resetAllData, doLogout,
   effToggleResult, dspFind, dspCreateYear, dspSave, dspClear, dspGrpChange, dspShiftChange, dspDateChange,
@@ -9685,7 +9989,7 @@ Object.assign(window, {
 <div id="appVersion" style="text-align:center;font:500 11px 'IBM Plex Mono',monospace;color:var(--muted);opacity:.75;padding:14px 0 4px"></div>
 <script>
 /* APP_VERSION diisi otomatis oleh workflow rilis (jangan diubah manual). */
-var APP_VERSION = '1.4.11';
+var APP_VERSION = '1.0.0';
 (function(){
   var el = document.getElementById('appVersion');
   if(el) el.textContent = 'U-Track v' + APP_VERSION + (window.IS_NATIVE ? '' : ' · Web');
