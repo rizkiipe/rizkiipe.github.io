@@ -90,6 +90,8 @@ jobs:
           # Run workflow: pakai isian catatan. Push VERSION/tag: pakai pesan commit terakhir
           NOTES="$INPUT_NOTES"
           if [ -z "$NOTES" ] && [ -n "$COMMIT_MSG" ]; then NOTES="$COMMIT_MSG"; fi
+          # Pesan bawaan GitHub saat edit file VERSION (mis. "Update VERSION") tidak informatif -> pakai teks umum
+          if echo "$NOTES" | grep -Eiq '^[[:space:]]*(update|create|add|edit|upload)[[:space:]]+(version|files?)[[:space:]]*$'; then NOTES="Pembaruan U-Track v$VERSION"; fi
           D="EOF_$(openssl rand -hex 8)"
           { echo "NOTES<<$D"; echo "$NOTES"; echo "$D"; } >> "$GITHUB_ENV"
 
