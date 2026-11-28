@@ -62,6 +62,7 @@
     --sel-bg:#0F2B33;
     --on-cyan:#06231F;
     --soft:#C9D4EA;
+    --ph-op:.2;
     --fx-a:hsl(220 35% 13%); --fx-b:hsl(222 45% 8%); --fx-a2:hsl(220 35% 14%); --fx-b2:hsl(222 45% 9%);
   }
   *{box-sizing:border-box;}
@@ -87,6 +88,7 @@
     border-radius:5px;padding:9px 10px;font-size:13.5px;font-family:inherit;width:100%;
   }
   input:focus,select:focus,textarea:focus{outline:none;border-color:var(--cyan);}
+  input::placeholder,textarea::placeholder{color:var(--muted);opacity:var(--ph-op);font-style:italic;}
   textarea{resize:vertical;min-height:38px;}
   input[type="time"]{color-scheme:dark;}
 
@@ -564,6 +566,7 @@ html[data-theme="light"]{
   --cyan:#2D7BF0; --amber:#C77D00; --red:#D83F36; --green:#119B63; --tag-bg:#E6EFFB;
   --hdr-bg:linear-gradient(180deg,#FFFFFF,#E9F2FE); --bar-bg:#FFFFFF; --bar-native:#FFFFFF;
   --stage:#E9F1FC; --sel-bg:#E1ECFF; --on-cyan:#FFFFFF; --soft:#2A3F66;
+  --ph-op:.2;
   --fx-a:#FFFFFF; --fx-b:#EEF4FE; --fx-a2:#FFFFFF; --fx-b2:#EEF4FE;
 }
 html[data-theme="light"] body{
@@ -9499,7 +9502,7 @@ function initNativeShell(){
   safe('teks', () => {
     document.querySelectorAll('.hist-empty').forEach(e => { if(/Muat Ulang/.test(e.textContent)) e.textContent = 'Tarik layar ke bawah untuk memuat riwayat.'; });
   });
-  safe('statusbar', () => { const SB = capP('StatusBar'); const lt = getTheme() === 'light'; SB.setStyle({ style: lt ? 'LIGHT' : 'DARK' }); SB.setBackgroundColor({ color: lt ? '#F6F9FE' : '#0A0E17' }); });
+  safe('statusbar', () => { applyStatusBar(getTheme()); });
   safe('splash', () => { capP('SplashScreen').hide(); });
   safe('insets', () => { [0, 300, 1000, 2500, 5000].forEach(ms => setTimeout(pullInsets, ms)); window.addEventListener('resize', pullInsets); window.addEventListener('orientationchange', () => setTimeout(pullInsets, 400)); });
   safe('ptr', initPullToRefresh);
@@ -9672,8 +9675,15 @@ function applyTheme(t, save){
   if(save){ try{ localStorage.setItem(THEME_KEY, t); }catch(e){} }
   const col = t === 'light' ? '#F6F9FE' : '#0A0E17';
   const mt = document.querySelector('meta[name="theme-color"]'); if(mt) mt.setAttribute('content', col);
-  try{ if(IS_NATIVE){ const SB = capP('StatusBar'); SB.setStyle({ style: t === 'light' ? 'LIGHT' : 'DARK' }); SB.setBackgroundColor({ color: col }); } }catch(e){}
+  applyStatusBar(t);
 }
+function applyStatusBar(t){
+  try{ if(!IS_NATIVE) return; }catch(e){ return; }
+  const lt = t === 'light';
+  const run = () => { try{ const SB = capP('StatusBar'); Promise.resolve(SB.setStyle({ style: lt ? 'LIGHT' : 'DARK' })).catch(() => {}); Promise.resolve(SB.setBackgroundColor({ color: lt ? '#F6F9FE' : '#0A0E17' })).catch(() => {}); }catch(e){} };
+  run(); setTimeout(run, 600); setTimeout(run, 2500);   // diulang karena Android kadang belum siap saat app baru dibuka
+}
+document.addEventListener('visibilitychange', () => { if(!document.hidden) applyStatusBar(getTheme()); });
 const SHEET_TITLE = "font:800 20px 'Big Shoulders Display',sans-serif;letter-spacing:.02em";
 const ROW = 'display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--line)';
 
@@ -10054,7 +10064,7 @@ Object.assign(window, {
 <div id="appVersion" style="text-align:center;font:500 11px 'IBM Plex Mono',monospace;color:var(--muted);opacity:.75;padding:14px 0 4px"></div>
 <script>
 /* APP_VERSION diisi otomatis oleh workflow rilis (jangan diubah manual). */
-var APP_VERSION = '1.4.13';
+var APP_VERSION = '1.0.0';
 (function(){
   var el = document.getElementById('appVersion');
   if(el) el.textContent = 'U-Track v' + APP_VERSION + (window.IS_NATIVE ? '' : ' · Web');
