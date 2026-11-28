@@ -160,6 +160,12 @@ Merangkum perubahan setelah 1.4.4 (termasuk 1.4.5 sampai 1.4.7).
 - Gambar yang dibuat untuk dibagikan (gambar laporan dan gambar grafik dashboard) tidak ikut berganti tema; hasil kiriman WhatsApp tetap sama.
 - Teknis: warna tema dipusatkan di variabel CSS pada `:root` (gelap) dan `html[data-theme="light"]` (terang) di `www/index.html`. Warna baru sebaiknya memakai variabel itu (mis. `var(--panel)`, `var(--text)`, `var(--cyan)`), bukan kode hex langsung.
 
+## Perubahan 1.4.14
+
+**Penyempurnaan tampilan**
+- **Teks contoh (placeholder)** di kolom isian, mis. `20 May 2027 L-240726-52A…`, `LASER`, `Contoh: LOT123`, kini sangat dipudarkan (opasitas 20%) dan dicetak miring di kedua mode supaya tidak terbaca seperti isian yang sudah terisi.
+- Status bar Android diterapkan ulang beberapa kali saat app dibuka dan saat kembali ke app, supaya ikon jam/baterai terbaca di mode terang.
+
 ## Keamanan (1.4.3)
 Kode aplikasi dan situs bersifat publik, jadi tidak ada rahasia yang boleh tertulis di dalamnya.
 - **Password riwayat** tidak lagi tertulis; hanya hash. Password lama tetap berlaku. Ganti lewat `tools/buat-hash.html` (bagian bawah).
