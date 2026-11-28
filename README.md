@@ -114,8 +114,8 @@ Setiap rilis, APK otomatis dikirim ke grup itu. Langkah ini dilewati bila secret
 - Draf **lebih dari 2 jam**: langsung terbuka laporan baru dan draf lama dihapus (sebelumnya dipulihkan sampai 14 jam).
 - Pengecualian: laporan yang masih **antre terkirim (offline)** dipulihkan otomatis tanpa bertanya selama **6 jam** terakhir, supaya data yang belum terkirim ke Drive tidak hilang.
 
-## Perubahan 1.4.9
-Merangkum perubahan setelah 1.4.4 (termasuk 1.4.5 sampai 1.4.8).
+## Perubahan 1.4.8
+Merangkum perubahan setelah 1.4.4 (termasuk 1.4.5 sampai 1.4.7).
 
 **Efisiensi: peringatan selisih total liter**
 - Peringatan "Total liter hasil baca beda dengan Total di sheet" kini menyebut selisihnya, arah selisih (hasil baca lebih besar atau lebih kecil dari sheet) beserta dugaan penyebabnya, dan menampilkan sampai 4 tanggal dengan selisih terbesar.
@@ -132,6 +132,33 @@ Merangkum perubahan setelah 1.4.4 (termasuk 1.4.5 sampai 1.4.8).
 - **Dashboard Proses -> kartu "Sisa masakan"**: menampilkan sisa batch yang harus dimasak untuk week planning terpilih, **disatukan per kode tanpa angka ukuran** (CHM 125 + CHM 1000 = CHM). Tiap kode menampilkan bar progres, "dimasak X dari Y batch", dan sisa (atau Done), plus total sisa semua kode. Angka aktual selama satu week dari semua proses (form Entry + input Dashboard + laporan Drive). Tombol **Muat planning & Drive** memperbarui data; kartu juga dimuat otomatis saat Dashboard dibuka (bila sudah login).
 - **Batas week diubah menjadi Minggu-Sabtu** (Week 48 2026 = 22-28 Nov). Sebelumnya Sabtu-Jumat, sehingga hari Sabtu terhitung masuk week berikutnya. Berlaku untuk nomor week otomatis di Entry dan untuk penghitungan batch yang sudah dimasak.
 - Catatan: laporan shift sebelumnya baru ikut terhitung bila sudah tersimpan di Drive (atau sudah diinput ke Dashboard di HP yang sama). FM/batch (L) tidak terisi otomatis untuk nama produk dari sheet; isi sekali per produk dan akan diingat.
+
+## Perubahan 1.4.12
+
+**Riwayat Laporan (Dashboard Filling-DE): pencarian dan filter**
+- **Kolom cari** untuk tanggal, shift, group, no. DE, SKU, lot, PB, dan **kode box** (boleh utuh, mis. `L-261026-42B`, atau sebagian, mis. `PB 01664`, `42B`). Beberapa kata dianggap AND. Penulisan kode box dengan atau tanpa titik sama-sama dikenali.
+- **Filter**: bulan, shift, group, dan jenis file (Data .json, Teks .txt, Rekap/lainnya). Semua filter bisa digabung dengan kolom cari; tombol **Reset** membersihkan semuanya.
+- **Telusuri kode box**: hasil pencarian menampilkan DE, SKU, dan kode box yang cocok langsung di baris riwayat (maks. 4 baris per file). File .txt ikut muncul lewat file .json pasangannya.
+- **Indeks kode box**: isi semua file .json dibaca sekali dari Drive saat pencarian teks (3 huruf atau lebih) pertama kali dipakai, atau lewat tombol **Baca kode box semua riwayat**. Indeks disimpan di HP (maks. 600 file terbaru); berikutnya hanya file baru atau yang berubah yang dibaca ulang.
+- **Tandai hasil**: menandai semua hasil filter sekaligus (semua halaman) untuk Kirim Ditandai atau Hapus Ditandai. Password hapus tetap berlaku. Daftar tampil 10 riwayat per tahap.
+
+**Cek konflik kode box saat Simpan ke Drive**
+- Sebelum laporan diunggah, kode box (termasuk Kode Box Jam 00:00 dan produk lanjutan) diperiksa:
+  - No. Mc di kode box harus sama dengan No. DE-nya.
+  - Kunci kode box (tanggal L + No. Mc + huruf batch, mis. `261026-42B`) yang sama di form ini atau di laporan lain di Drive harus punya **PB, Expire, dan SKU yang sama**. Laporan Drive hanya dicek mulai tanggal lot paling awal.
+  - Format kode box yang tidak terbaca ikut diperingatkan.
+- Bila ada temuan, muncul daftar (maks. 8 baris) dengan pilihan **Tetap simpan** atau batal. Ini peringatan, bukan penolakan, dan tidak memakai password.
+- Lanjutan produksi antar shift dengan kode box yang sama tidak dianggap konflik selama PB, Expire, dan SKU sama.
+- Bila pemeriksaan gagal bukan karena koneksi, simpan tetap berjalan. Bila offline, laporan tetap masuk antrean "Tertunda" seperti biasa.
+
+## Perubahan 1.4.13
+
+**Mode terang / gelap**
+- Pengaturan (ikon pengguna) -> baris **Tampilan** -> dropdown **Mode gelap / Mode terang**. **Mode gelap tetap bawaan** dan tampilannya tidak berubah.
+- Mode terang: latar putih kebiruan dengan aksen biru lembut, kartu putih berbayangan biru tipis, header gradasi putih ke biru muda, dan logo U-Track versi biru. Gaya futuristik (garis, pendar, kartu bersudut) tetap dipertahankan.
+- Pilihan disimpan per HP dan diterapkan sebelum halaman tampil (tanpa kedip saat app dibuka). Di APK, warna status bar Android dan `theme-color` browser ikut berganti.
+- Gambar yang dibuat untuk dibagikan (gambar laporan dan gambar grafik dashboard) tidak ikut berganti tema; hasil kiriman WhatsApp tetap sama.
+- Teknis: warna tema dipusatkan di variabel CSS pada `:root` (gelap) dan `html[data-theme="light"]` (terang) di `www/index.html`. Warna baru sebaiknya memakai variabel itu (mis. `var(--panel)`, `var(--text)`, `var(--cyan)`), bukan kode hex langsung.
 
 ## Keamanan (1.4.3)
 Kode aplikasi dan situs bersifat publik, jadi tidak ada rahasia yang boleh tertulis di dalamnya.
