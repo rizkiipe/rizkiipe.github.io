@@ -7784,20 +7784,20 @@ function pmWkOptions(){
     + ws.map(w => `<option value="${w}"${String(w) === cur ? ' selected' : ''}>Week ${w}</option>`).join('');
 }
 function pmFillWkSel(){ const el = document.getElementById('pmWkSel'); if(el) el.innerHTML = pmWkOptions(); }
-async function pmLoadWkTabs(force){
+async function pmLoadWkTabs(force, explicit){
   if(pmWkBusy) return; pmWkBusy = true; pmWkLastTry = Date.now();
   let ok = false;
   try{
     pmPlanMsg('Mengambil daftar week dari sheet Planning…');
     if(force || !accessToken) await getAccessToken();
-    if(!planTabs.length) planTabs = await planFetchTabs();
+    if(!planTabs.length || explicit) planTabs = await planFetchTabs();   // klik tombol: ambil ulang daftar tab (tab week baru)
     pmWkTabs = planTabs.map(t => ({ wk: planWeekNo(t), tab: t })).filter(x => x.wk > 0);
     pmFillWkSel();
     pmPlanMsg(pmWkTabs.length ? `🟢 ${pmWkTabs.length} week ditemukan di sheet` : '⚠ Tidak ada tab week (W45, Week 45, …) di sheet Planning');
     ok = pmWkTabs.length > 0;
   }catch(e){ pmPlanMsg('🔴 ' + pmE(e && e.message ? e.message : 'Gagal mengambil daftar week') + ' — tekan “Muat dari sheet” untuk mencoba lagi'); }
   finally{ pmWkBusy = false; }
-  if(ok) await pmLoadPlanFromSheet(true);   // otomatis salin produk + batch planning week terpilih
+  if(ok) await pmLoadPlanFromSheet(explicit ? false : true, true);   // otomatis salin produk + batch planning week terpilih
 }
 async function pmPickWk(v){
   PM.d.wk = v; pmSave();
@@ -7805,10 +7805,11 @@ async function pmPickWk(v){
   await pmLoadPlanFromSheet(false);
 }
 // auto = true: dipanggil otomatis saat entry dibuka (tidak menimpa isian manual, tidak mengulang bila week yang sama sudah dimuat)
-async function pmLoadPlanFromSheet(auto){
-  if(pmWkBusy) return;
+async function pmLoadPlanFromSheet(auto, skipTabs){
+  if(pmWkBusy){ if(auto !== true) showStatus('Sedang memuat dari sheet… tunggu sebentar', 'info'); return; }
+  if(auto !== true) showStatus('Memuat planning dari sheet…', 'info');
   try{
-    if(!pmWkTabs.length){ await pmLoadWkTabs(true); return; }   // pmLoadWkTabs lanjut memuat planning sendiri
+    if(!skipTabs && (!pmWkTabs.length || auto !== true)){ await pmLoadWkTabs(true, auto !== true); return; }   // pmLoadWkTabs lanjut memuat planning sendiri
     const wk = Number(pmWk()), t = pmWkTabs.find(x => x.wk === wk);
     if(!t){ pmPlanMsg(`⚠ Tab Week ${pmE(pmWk())} tidak ada di sheet Planning`); return; }
     const manual = !PM.planSrc && PM.plan.some(r => String(r.b || '').trim());
@@ -10060,7 +10061,7 @@ Object.assign(window, {
   updateReworkPallet, addReworkPallet, removeReworkPallet, openReworkList, closeReworkList, generateAndUploadReworkReport, regenerateReworkExpiry, addReworkToWorksheet,
   planLoad, planSetIn, planToggleAuto, planChangeTab, planChangeYear, planSetCat, planSetQuery, planSetSort,
   rwLoad, rwChangeYear, rwSetMonth, rwSetQuery, rwSetSort,
-  pmInputProc, pmInputAll, pmResetSent, pmDashEdit, pmEdSet, pmEdAdd, pmEdDel, pmEdSave, pmEdCancel, pmDashSet, pmDashDel, pmDashDrive, pmDashRefreshPlan, pmDashPickWk, pmSaveDrive, pmOpenHist, pmLoadFile, pmDelFile, pmSet, pmTab, pmAddItem, pmDelItem, pmAddProc, pmDelProc, pmAddRow, pmDelRow, pmNew, pmCopy, pmWA,
+  pmInputProc, pmInputAll, pmResetSent, pmDashEdit, pmEdSet, pmEdAdd, pmEdDel, pmEdSave, pmEdCancel, pmDashSet, pmDashDel, pmDashDrive, pmDashRefreshPlan, pmDashPickWk, pmPickWk, pmLoadPlanFromSheet, pmSaveDrive, pmOpenHist, pmLoadFile, pmDelFile, pmSet, pmTab, pmAddItem, pmDelItem, pmAddProc, pmDelProc, pmAddRow, pmDelRow, pmNew, pmCopy, pmWA,
   ssMeta, ssSet, ssToggle, ssSetStatus, ssAddAct, ssSetAct, ssDelAct, ssAddPlan, ssSetPlan, ssDelPlan, ssAddUnit, ssDelUnit, ssReset, ssGenerate, ssCopy, ssWhatsApp
 });
 
@@ -10108,7 +10109,7 @@ Object.assign(window, {
 <div id="appVersion" style="text-align:center;font:500 11px 'IBM Plex Mono',monospace;color:var(--muted);opacity:.75;padding:14px 0 4px"></div>
 <script>
 /* APP_VERSION diisi otomatis oleh workflow rilis (jangan diubah manual). */
-var APP_VERSION = '1.4.15';
+var APP_VERSION = '1.0.0';
 (function(){
   var el = document.getElementById('appVersion');
   if(el) el.textContent = 'U-Track v' + APP_VERSION + (window.IS_NATIVE ? '' : ' · Web');
