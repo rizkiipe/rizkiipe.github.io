@@ -166,6 +166,16 @@ Merangkum perubahan setelah 1.4.4 (termasuk 1.4.5 sampai 1.4.7).
 - **Teks contoh (placeholder)** di kolom isian, mis. `20 May 2027 L-240726-52A…`, `LASER`, `Contoh: LOT123`, kini sangat dipudarkan (opasitas 20%) dan dicetak miring di kedua mode supaya tidak terbaca seperti isian yang sudah terisi.
 - Status bar Android diterapkan ulang beberapa kali saat app dibuka dan saat kembali ke app, supaya ikon jam/baterai terbaca di mode terang.
 
+## Perubahan 1.4.15
+
+**Dashboard Proses: kartu "Sisa masakan" memakai week sendiri**
+- Sebelumnya kartu ini mengikuti **tanggal form Entry** (atau week yang dipilih manual di Entry). Bila tanggal form tertinggal di week lama, kartu menampilkan "Planning dari W44" padahal sudah W48.
+- Sekarang kartu punya **dropdown Week** sendiri. Bawaannya **Minggu ini** (week berjalan dari tanggal hari ini); week lain dipilih dari daftar tab sheet Planning untuk memantau week sebelumnya. Pilihan ini tidak mengubah form Entry.
+- Week dihitung **Minggu sampai Sabtu** (Week 48 2026 = 22-28 Nov). Judul kartu menampilkan rentang tanggalnya.
+- Entry yang dihitung "dimasak" hanya proses **ber-tanggal di dalam week terpilih**: laporan di Drive, log "Input ke Dashboard" di perangkat, dan form Entry bila tanggalnya di week itu. Entry di luar rentang tidak ikut dihitung.
+- Planning (batch per produk) dimuat dari tab week terpilih (mis. `W48`) di sheet Planning. Cache disimpan di HP; tombol **Muat planning & Drive** memuat ulang.
+- Perbaikan: tombol **Muat planning & Drive** sebelumnya tidak terdaftar sehingga tidak bereaksi saat ditekan.
+
 ## Keamanan (1.4.3)
 Kode aplikasi dan situs bersifat publik, jadi tidak ada rahasia yang boleh tertulis di dalamnya.
 - **Password riwayat** tidak lagi tertulis; hanya hash. Password lama tetap berlaku. Ganti lewat `tools/buat-hash.html` (bagian bawah).
