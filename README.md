@@ -185,6 +185,18 @@ Merangkum perubahan setelah 1.4.4 (termasuk 1.4.5 sampai 1.4.7).
 - Ada pesan status saat memuat; bila pemuatan sebelumnya masih berjalan, muncul info "Sedang memuat…" (tidak diam lagi).
 - Catatan teknis: handler yang dipanggil lewat atribut `onclick` HTML wajib didaftarkan di `Object.assign(window, {...})` pada `www/index.html` karena script berjenis module.
 
+## Perubahan 1.4.17
+
+**Halaman Tentang**
+- Pengaturan (ikon pengguna) -> tombol **Tentang & riwayat**: menampilkan versi terpasang (APK atau Web) dan **riwayat perubahan** semua versi. Versi terbaru terbuka, versi lama bisa dibuka satu per satu, dan versi yang sedang terpasang diberi tanda "terpasang".
+- Isinya diambil otomatis dari bagian `## Perubahan x.y.z` di README ini oleh `scripts/inject-changelog.mjs`, jadi cukup menulis README (tidak ada catatan ganda untuk dirawat). Skrip itu dijalankan workflow saat rilis.
+- Latar gelap jendela Pengaturan/Tentang kini mengikuti mode terang/gelap.
+
+**Pengecekan otomatis sebelum rilis (mencegah tombol mati dan salah hitung)**
+- `node scripts/check-handlers.mjs www/index.html`: memeriksa sintaks semua script dan memastikan setiap fungsi yang dipanggil tombol (`onclick`, `onchange`, dst., termasuk yang dilewatkan sebagai string seperti `pmBt('Label', 'fungsi()')`) sudah terdaftar di `Object.assign(window, {...})`. Bug tombol "Muat dari sheet", dropdown Weeks, dan "Muat planning & Drive" sebelumnya akan tertangkap di sini.
+- `node --test tests/logic.test.mjs`: 14 tes logika murni yang mengambil fungsi langsung dari `www/index.html`: week Minggu-Sabtu (termasuk pergantian tahun dan 53 week 2026), nama tab planning, batch planning, kode produk, hitung sisa masakan (hanya entry dalam rentang week), dan parser kode box (lot, Mc, PB, expire). Bila file ada di lokasi lain, set `APP_HTML=path/index.html`.
+- Keduanya tanpa dependensi (hanya Node 22) dan dijalankan workflow sebelum build APK; bila gagal, rilis berhenti.
+
 ## Keamanan (1.4.3)
 Kode aplikasi dan situs bersifat publik, jadi tidak ada rahasia yang boleh tertulis di dalamnya.
 - **Password riwayat** tidak lagi tertulis; hanya hash. Password lama tetap berlaku. Ganti lewat `tools/buat-hash.html` (bagian bawah).
