@@ -51,6 +51,11 @@ jobs:
           distribution: temurin
           java-version: '21'
 
+      - name: Cek kode (sintaks, handler tombol, tes logika)
+        run: |
+          node scripts/check-handlers.mjs www/index.html
+          node --test tests/logic.test.mjs
+          
       - name: Tentukan versi
         env:
           INPUT_VERSION: ${{ inputs.version }}
@@ -100,6 +105,9 @@ jobs:
           HOST="$WEB_HOST"
           sed -i "s/var APP_VERSION = '[0-9.]*'/var APP_VERSION = '$VERSION'/; s|__HOST__|$HOST|g; s|__REPO__|$GITHUB_REPOSITORY|g" www/index.html
           grep -q "var APP_VERSION = '$VERSION'" www/index.html || { echo "APP_VERSION gagal diisi"; exit 1; }
+
+      - name: Salin riwayat perubahan dari README ke index.html
+        run: node scripts/inject-changelog.mjs www/index.html README.md
 
       - name: Install dependensi dan buat proyek Android
         run: |
@@ -222,6 +230,7 @@ jobs:
         run: |
           git checkout -- www/index.html
           sed -i "s/var APP_VERSION = '[0-9.]*'/var APP_VERSION = '$VERSION'/" www/index.html
+          node scripts/inject-changelog.mjs www/index.html README.md
           git add www/index.html
           # Kunci versi paket: package-lock.json dibuat otomatis pada rilis pertama lalu ikut tersimpan di repo
           if [ -f package-lock.json ]; then git add package-lock.json; fi
