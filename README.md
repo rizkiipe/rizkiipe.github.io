@@ -176,6 +176,15 @@ Merangkum perubahan setelah 1.4.4 (termasuk 1.4.5 sampai 1.4.7).
 - Planning (batch per produk) dimuat dari tab week terpilih (mis. `W48`) di sheet Planning. Cache disimpan di HP; tombol **Muat planning & Drive** memuat ulang.
 - Perbaikan: tombol **Muat planning & Drive** sebelumnya tidak terdaftar sehingga tidak bereaksi saat ditekan.
 
+## Perubahan 1.4.16
+
+**Perbaikan tombol "Muat dari sheet" dan dropdown Weeks (Entry Proses, kartu Planning WIP)**
+- Tombol **Muat dari sheet** tidak terdaftar di `window`, sehingga ditekan pun tidak ada reaksi (error `pmLoadPlanFromSheet is not defined`). Sudah terdaftar.
+- Dropdown **Weeks (pilih dari sheet Planning)** juga tidak terdaftar (`pmPickWk`), jadi memilih week tidak memuat planning. Sudah diperbaiki.
+- Klik pertama setelah app dibuka sebelumnya hanya memuat daftar tab lalu berhenti dengan pesan "Planning dari W48 (tekan Muat dari sheet untuk memperbarui)" karena dianggap pemuatan otomatis. Kini klik tombol selalu **mengambil ulang daftar tab dan isi planning** dari sheet (termasuk tab week baru), lalu memuat ulang laporan Drive untuk perhitungan "Dimasak".
+- Ada pesan status saat memuat; bila pemuatan sebelumnya masih berjalan, muncul info "Sedang memuat…" (tidak diam lagi).
+- Catatan teknis: handler yang dipanggil lewat atribut `onclick` HTML wajib didaftarkan di `Object.assign(window, {...})` pada `www/index.html` karena script berjenis module.
+
 ## Keamanan (1.4.3)
 Kode aplikasi dan situs bersifat publik, jadi tidak ada rahasia yang boleh tertulis di dalamnya.
 - **Password riwayat** tidak lagi tertulis; hanya hash. Password lama tetap berlaku. Ganti lewat `tools/buat-hash.html` (bagian bawah).
